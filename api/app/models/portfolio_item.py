@@ -1,6 +1,12 @@
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,6 +30,16 @@ class PortfolioItem(TimestampMixin, Base):
             ondelete="CASCADE",
         ),
         nullable=False,
+        index=True,
+    )
+
+    media_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "media_assets.id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
         index=True,
     )
 
@@ -68,4 +84,8 @@ class PortfolioItem(TimestampMixin, Base):
     workspace = relationship(
         "Workspace",
         back_populates="portfolio_items",
+    )
+
+    media_asset = relationship(
+        "MediaAsset",
     )

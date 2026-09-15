@@ -29,6 +29,36 @@ class WebsiteSettings(TimestampMixin, Base):
     )
 
     # --------------------------------------------------
+    # Media references
+    # --------------------------------------------------
+    logo_media_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "media_assets.id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+
+    hero_media_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "media_assets.id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+
+    about_media_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "media_assets.id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+
+    # --------------------------------------------------
     # Brand
     # --------------------------------------------------
     display_name: Mapped[str | None] = mapped_column(

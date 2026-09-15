@@ -39,6 +39,20 @@ def get_r2_client():
     )
 
 
+def get_public_url(
+    object_key: str,
+) -> str:
+    if not settings.r2_public_url:
+        raise RuntimeError(
+            "R2_PUBLIC_URL is not configured."
+        )
+
+    return (
+        f"{settings.r2_public_url.rstrip('/')}/"
+        f"{object_key}"
+    )
+
+
 def create_presigned_upload_url(
     object_key: str,
     content_type: str,
@@ -61,18 +75,42 @@ def create_presigned_upload_url(
         ExpiresIn=expires_in,
     )
 
-    public_base = (
-        settings.r2_public_url or ""
-    ).rstrip("/")
-
-    public_url = (
-        f"{public_base}/{object_key}"
-        if public_base
-        else None
-    )
-
     return {
         "upload_url": upload_url,
-        "public_url": public_url,
+        "public_url": get_public_url(
+            object_key
+        ),
         "object_key": object_key,
     }
+
+
+def get_object_metadata(
+    object_key: str,
+):
+    if not settings.r2_bucket_name:
+        raise RuntimeError(
+            "R2_BUCKET_NAME is not configured."
+        )
+
+    client = get_r2_client()
+
+    return client.head_object(
+        Bucket=settings.r2_bucket_name,
+        Key=object_key,
+    )
+
+
+def delete_r2_object(
+    object_key: str,
+):
+    if not settings.r2_bucket_name:
+        raise RuntimeError(
+            "R2_BUCKET_NAME is not configured."
+        )
+
+    client = get_r2_client()
+
+    client.delete_object(
+        Bucket=settings.r2_bucket_name,
+        Key=object_key,
+    )

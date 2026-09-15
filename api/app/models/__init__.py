@@ -7,6 +7,7 @@ from app.models.website_settings import WebsiteSettings
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
 from app.models.workspace_service import WorkspaceService
+from app.models.media_asset import MediaAsset
 
 __all__ = [
     "Profile",
@@ -18,4 +19,5 @@ __all__ = [
     "WebsiteSettings",
     "PortfolioItem",
     "PhotographyPackage",
+    "MediaAsset",
 ]

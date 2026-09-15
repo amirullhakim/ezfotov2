@@ -42,7 +42,27 @@ import { apiFetch } from "@/lib/api"
 type WebsiteSettingsResponse =
   PreviewSettings & {
     id: string
+
+    logo_url: string
+    favicon_url: string
+
+    facebook_url: string
+    tiktok_url: string
+
+    logo_media_asset_id:
+      | string
+      | null
+
+    hero_media_asset_id:
+      | string
+      | null
+
+    about_media_asset_id:
+      | string
+      | null
+
     is_published: boolean
+
     template_key: string
   }
 
@@ -70,20 +90,33 @@ const emptySettings: WebsiteSettingsResponse = {
   display_name: "",
   tagline: "",
 
+  logo_url: "",
+  favicon_url: "",
+
+  logo_media_asset_id:
+    null,
+
   hero_title: "",
   hero_subtitle: "",
   hero_image_url: "",
-  hero_cta_text: "View Portfolio",
+  hero_media_asset_id:
+    null,
+  hero_cta_text:
+    "View Portfolio",
 
   about_title: "About",
   about_text: "",
   about_image_url: "",
+  about_media_asset_id:
+    null,
 
   contact_email: "",
   contact_phone: "",
   location: "",
 
   instagram_url: "",
+  facebook_url: "",
+  tiktok_url: "",
 
   primary_color: "#073B4C",
   accent_color: "#1CC9D8",
@@ -108,6 +141,16 @@ function normalizeSettings(
     tagline:
       value.tagline ?? "",
 
+    logo_url:
+      value.logo_url ?? "",
+
+    favicon_url:
+      value.favicon_url ?? "",
+
+    logo_media_asset_id:
+      value.logo_media_asset_id ??
+      null,
+
     hero_title:
       value.hero_title ?? "",
 
@@ -116,6 +159,10 @@ function normalizeSettings(
 
     hero_image_url:
       value.hero_image_url ?? "",
+
+    hero_media_asset_id:
+      value.hero_media_asset_id ??
+      null,
 
     hero_cta_text:
       value.hero_cta_text ??
@@ -131,6 +178,10 @@ function normalizeSettings(
     about_image_url:
       value.about_image_url ?? "",
 
+    about_media_asset_id:
+      value.about_media_asset_id ??
+      null,
+
     contact_email:
       value.contact_email ?? "",
 
@@ -142,6 +193,12 @@ function normalizeSettings(
 
     instagram_url:
       value.instagram_url ?? "",
+
+    facebook_url:
+      value.facebook_url ?? "",
+
+    tiktok_url:
+      value.tiktok_url ?? "",
 
     primary_color:
       value.primary_color ??
@@ -156,7 +213,8 @@ function normalizeSettings(
       "SIGNATURE",
 
     is_published:
-      value.is_published ?? false,
+      value.is_published ??
+      false,
   }
 }
 
@@ -164,30 +222,54 @@ function normalizeSettings(
 export default function WebsiteStudio() {
   const router = useRouter()
 
-  const [activeTab, setActiveTab] =
+  const [
+    activeTab,
+    setActiveTab,
+  ] =
     useState<Tab>("design")
 
-  const [settings, setSettings] =
+  const [
+    settings,
+    setSettings,
+  ] =
     useState<WebsiteSettingsResponse>(
       emptySettings
     )
 
-  const [portfolio, setPortfolio] =
+  const [
+    portfolio,
+    setPortfolio,
+  ] =
     useState<PortfolioItem[]>([])
 
-  const [packages, setPackages] =
+  const [
+    packages,
+    setPackages,
+  ] =
     useState<PackageItem[]>([])
 
-  const [workspaceSlug, setWorkspaceSlug] =
+  const [
+    workspaceSlug,
+    setWorkspaceSlug,
+  ] =
     useState("")
 
-  const [loading, setLoading] =
+  const [
+    loading,
+    setLoading,
+  ] =
     useState(true)
 
-  const [saving, setSaving] =
+  const [
+    saving,
+    setSaving,
+  ] =
     useState(false)
 
-  const [status, setStatus] =
+  const [
+    status,
+    setStatus,
+  ] =
     useState("")
 
 
@@ -236,11 +318,14 @@ export default function WebsiteStudio() {
           packageResult.packages
         )
 
+
         if (
           workspaceResult.workspace
         ) {
           setWorkspaceSlug(
-            workspaceResult.workspace.slug
+            workspaceResult
+              .workspace
+              .slug
           )
         }
 
@@ -262,8 +347,13 @@ export default function WebsiteStudio() {
 
 
   function updateField(
-    key: keyof WebsiteSettingsResponse,
-    value: string | boolean
+    key:
+      keyof WebsiteSettingsResponse,
+
+    value:
+      | string
+      | boolean
+      | null
   ) {
     setSettings(
       (current) => ({
@@ -277,7 +367,8 @@ export default function WebsiteStudio() {
 
 
   function buildSettingsPayload(
-    published = settings.is_published
+    published =
+      settings.is_published
   ) {
     return {
       display_name:
@@ -286,8 +377,16 @@ export default function WebsiteStudio() {
       tagline:
         settings.tagline,
 
-      logo_url: null,
-      favicon_url: null,
+      logo_url:
+        settings.logo_url ||
+        null,
+
+      logo_media_asset_id:
+        settings.logo_media_asset_id,
+
+      favicon_url:
+        settings.favicon_url ||
+        null,
 
       hero_title:
         settings.hero_title,
@@ -296,7 +395,11 @@ export default function WebsiteStudio() {
         settings.hero_subtitle,
 
       hero_image_url:
-        settings.hero_image_url,
+        settings.hero_image_url ||
+        null,
+
+      hero_media_asset_id:
+        settings.hero_media_asset_id,
 
       hero_cta_text:
         settings.hero_cta_text,
@@ -308,7 +411,11 @@ export default function WebsiteStudio() {
         settings.about_text,
 
       about_image_url:
-        settings.about_image_url,
+        settings.about_image_url ||
+        null,
+
+      about_media_asset_id:
+        settings.about_media_asset_id,
 
       contact_email:
         settings.contact_email,
@@ -322,8 +429,13 @@ export default function WebsiteStudio() {
       instagram_url:
         settings.instagram_url,
 
-      facebook_url: null,
-      tiktok_url: null,
+      facebook_url:
+        settings.facebook_url ||
+        null,
+
+      tiktok_url:
+        settings.tiktok_url ||
+        null,
 
       primary_color:
         settings.primary_color,
@@ -355,9 +467,10 @@ export default function WebsiteStudio() {
           {
             method: "PUT",
 
-            body: JSON.stringify(
-              buildSettingsPayload()
-            ),
+            body:
+              JSON.stringify(
+                buildSettingsPayload()
+              ),
           }
         )
 
@@ -399,11 +512,12 @@ export default function WebsiteStudio() {
           {
             method: "PUT",
 
-            body: JSON.stringify(
-              buildSettingsPayload(
-                nextPublished
-              )
-            ),
+            body:
+              JSON.stringify(
+                buildSettingsPayload(
+                  nextPublished
+                )
+              ),
           }
         )
 
@@ -438,8 +552,10 @@ export default function WebsiteStudio() {
       setStatus(
         "Workspace address unavailable."
       )
+
       return
     }
+
 
     window.open(
       `/site/${workspaceSlug}`,
@@ -469,7 +585,6 @@ export default function WebsiteStudio() {
   return (
     <main className="min-h-screen bg-[#F4F8F9]">
 
-      {/* HEADER */}
       <header className="sticky top-0 z-30 border-b border-[#DFE8EA] bg-white/95 backdrop-blur">
 
         <div className="flex min-h-[76px] items-center justify-between gap-5 px-5 lg:px-8">
@@ -526,7 +641,9 @@ export default function WebsiteStudio() {
 
             <button
               type="button"
-              onClick={viewPublicSite}
+              onClick={
+                viewPublicSite
+              }
               disabled={
                 !settings.is_published
               }
@@ -586,14 +703,15 @@ export default function WebsiteStudio() {
         </div>
 
 
-        {/* STUDIO TABS */}
         <div className="border-t border-[#EEF2F3] px-5 lg:px-8">
 
           <div className="flex min-h-[58px] items-center gap-2 overflow-x-auto">
 
             <StudioTab
               label="Design"
-              icon={LayoutTemplate}
+              icon={
+                LayoutTemplate
+              }
               active={
                 activeTab ===
                 "design"
@@ -650,7 +768,6 @@ export default function WebsiteStudio() {
 
       <div className="grid min-h-[calc(100vh-135px)] xl:grid-cols-[520px_1fr]">
 
-        {/* EDITOR */}
         <section className="border-r border-[#DFE8EA] bg-white">
 
           <div className="p-6 lg:p-8">
@@ -718,7 +835,6 @@ export default function WebsiteStudio() {
         </section>
 
 
-        {/* PREVIEW */}
         <section className="bg-[#EFF4F5]">
 
           <div className="sticky top-[135px] p-6 lg:p-10">
@@ -788,11 +904,17 @@ function DesignEditor({
   updateField,
   onSave,
 }: {
-  settings: WebsiteSettingsResponse
+  settings:
+    WebsiteSettingsResponse
 
   updateField: (
-    key: keyof WebsiteSettingsResponse,
-    value: string | boolean
+    key:
+      keyof WebsiteSettingsResponse,
+
+    value:
+      | string
+      | boolean
+      | null
   ) => void
 
   onSave: (
@@ -889,12 +1011,28 @@ function DesignEditor({
         }
         purpose="website-hero"
         aspect="wide"
-        onUploaded={(value) =>
+        onUploaded={(asset) => {
           updateField(
             "hero_image_url",
-            value
+            asset.public_url
           )
-        }
+
+          updateField(
+            "hero_media_asset_id",
+            asset.id
+          )
+        }}
+        onRemove={() => {
+          updateField(
+            "hero_image_url",
+            ""
+          )
+
+          updateField(
+            "hero_media_asset_id",
+            null
+          )
+        }}
       />
 
 
@@ -960,12 +1098,28 @@ function DesignEditor({
         }
         purpose="website-about"
         aspect="wide"
-        onUploaded={(value) =>
+        onUploaded={(asset) => {
           updateField(
             "about_image_url",
-            value
+            asset.public_url
           )
-        }
+
+          updateField(
+            "about_media_asset_id",
+            asset.id
+          )
+        }}
+        onRemove={() => {
+          updateField(
+            "about_image_url",
+            ""
+          )
+
+          updateField(
+            "about_media_asset_id",
+            null
+          )
+        }}
       />
 
 
@@ -1105,9 +1259,14 @@ function StudioTab({
   onClick,
 }: {
   label: string
-  icon: typeof LayoutTemplate
+
+  icon:
+    typeof LayoutTemplate
+
   active: boolean
+
   count?: number
+
   onClick: () => void
 }) {
   return (
@@ -1134,7 +1293,9 @@ function StudioTab({
               : "bg-[#EEF2F3] text-[#7B8E95]"
           }`}
         >
+
           {count}
+
         </span>
       )}
 
@@ -1159,9 +1320,11 @@ function SectionHeader({
         {eyebrow}
       </p>
 
+
       <h2 className="mt-2 text-xl font-semibold tracking-[-0.025em] text-[#173943]">
         {title}
       </h2>
+
 
       <p className="mt-2 text-sm leading-6 text-[#768B92]">
         {description}
@@ -1177,15 +1340,15 @@ function Field({
   value,
   placeholder,
   onChange,
-  helper,
 }: {
   label: string
   value: string
+
   placeholder?: string
+
   onChange: (
     value: string
   ) => void
-  helper?: string
 }) {
   return (
     <div>
@@ -1196,7 +1359,9 @@ function Field({
 
 
       <input
-        value={value ?? ""}
+        value={
+          value ?? ""
+        }
         placeholder={
           placeholder
         }
@@ -1207,13 +1372,6 @@ function Field({
         }
         className="h-12 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none transition placeholder:text-[#A4B2B7] focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
       />
-
-
-      {helper && (
-        <p className="mt-2 text-xs leading-5 text-[#8C9BA0]">
-          {helper}
-        </p>
-      )}
 
     </div>
   )
@@ -1228,7 +1386,9 @@ function TextArea({
 }: {
   label: string
   value: string
+
   placeholder?: string
+
   onChange: (
     value: string
   ) => void
@@ -1242,7 +1402,9 @@ function TextArea({
 
 
       <textarea
-        value={value ?? ""}
+        value={
+          value ?? ""
+        }
         placeholder={
           placeholder
         }
@@ -1267,6 +1429,7 @@ function ColorField({
 }: {
   label: string
   value: string
+
   onChange: (
     value: string
   ) => void

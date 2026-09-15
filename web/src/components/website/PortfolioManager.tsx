@@ -6,21 +6,38 @@ import {
   Plus,
   Trash2,
 } from "lucide-react"
+
 import {
   FormEvent,
   useState,
 } from "react"
 
-import ImageUploader from "@/components/website/ImageUploader"
+import ImageUploader, {
+  UploadedMedia,
+} from "@/components/website/ImageUploader"
+
 import { apiFetch } from "@/lib/api"
 
 
 export type PortfolioItem = {
   id: string
+
+  media_asset_id?:
+    | string
+    | null
+
   title: string
-  category: string | null
-  description?: string | null
+
+  category:
+    | string
+    | null
+
+  description?:
+    | string
+    | null
+
   image_url: string
+
   sort_order?: number
   is_featured?: boolean
   is_visible?: boolean
@@ -29,6 +46,7 @@ export type PortfolioItem = {
 
 type Props = {
   items: PortfolioItem[]
+
   onChange: (
     items: PortfolioItem[]
   ) => void
@@ -45,17 +63,29 @@ export default function PortfolioManager({
   const [category, setCategory] =
     useState("")
 
-  const [description, setDescription] =
-    useState("")
+  const [
+    description,
+    setDescription,
+  ] = useState("")
 
-  const [imageUrl, setImageUrl] =
-    useState("")
+  const [
+    uploadedAsset,
+    setUploadedAsset,
+  ] =
+    useState<UploadedMedia | null>(
+      null
+    )
 
   const [saving, setSaving] =
     useState(false)
 
-  const [deleting, setDeleting] =
-    useState<string | null>(null)
+  const [
+    deleting,
+    setDeleting,
+  ] =
+    useState<string | null>(
+      null
+    )
 
   const [error, setError] =
     useState("")
@@ -68,10 +98,11 @@ export default function PortfolioManager({
 
     setError("")
 
-    if (!imageUrl) {
+    if (!uploadedAsset) {
       setError(
         "Please upload a portfolio photo first."
       )
+
       return
     }
 
@@ -91,9 +122,14 @@ export default function PortfolioManager({
                 category || null,
 
               description:
-                description || null,
+                description ||
+                null,
 
-              image_url: imageUrl,
+              image_url:
+                uploadedAsset.public_url,
+
+              media_asset_id:
+                uploadedAsset.id,
 
               sort_order:
                 items.length,
@@ -116,7 +152,7 @@ export default function PortfolioManager({
       setTitle("")
       setCategory("")
       setDescription("")
-      setImageUrl("")
+      setUploadedAsset(null)
 
     } catch (err) {
       setError(
@@ -144,6 +180,7 @@ export default function PortfolioManager({
           method: "DELETE",
         }
       )
+
 
       onChange(
         items.filter(
@@ -174,9 +211,11 @@ export default function PortfolioManager({
           Portfolio
         </p>
 
+
         <h2 className="mt-2 text-xl font-semibold tracking-[-0.025em] text-[#173943]">
           Showcase your work
         </h2>
+
 
         <p className="mt-2 text-sm leading-6 text-[#768B92]">
           Upload selected photography that represents your style and the work you want customers to see.
@@ -201,6 +240,7 @@ export default function PortfolioManager({
 
           <Plus className="h-4 w-4 text-[#0A99A7]" />
 
+
           <p className="font-semibold text-[#2C4C55]">
             Add portfolio photo
           </p>
@@ -210,17 +250,29 @@ export default function PortfolioManager({
 
         <ImageUploader
           label="Photo"
-          value={imageUrl}
+          value={
+            uploadedAsset
+              ?.public_url
+          }
           purpose="portfolio"
           aspect="wide"
-          onUploaded={setImageUrl}
+          onUploaded={
+            setUploadedAsset
+          }
+          onRemove={() =>
+            setUploadedAsset(
+              null
+            )
+          }
         />
 
 
         <div>
+
           <label className="mb-2 block text-sm font-semibold text-[#36535C]">
             Photo title
           </label>
+
 
           <input
             required
@@ -233,13 +285,16 @@ export default function PortfolioManager({
             placeholder="Wedding in Kuala Lumpur"
             className="h-12 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
           />
+
         </div>
 
 
         <div>
+
           <label className="mb-2 block text-sm font-semibold text-[#36535C]">
             Category
           </label>
+
 
           <input
             value={category}
@@ -251,13 +306,16 @@ export default function PortfolioManager({
             placeholder="Wedding, Portrait, Event..."
             className="h-12 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
           />
+
         </div>
 
 
         <div>
+
           <label className="mb-2 block text-sm font-semibold text-[#36535C]">
             Description
           </label>
+
 
           <textarea
             rows={3}
@@ -270,13 +328,15 @@ export default function PortfolioManager({
             placeholder="Optional short description..."
             className="w-full resize-none rounded-xl border border-[#DCE6E8] bg-white px-4 py-3 text-sm text-[#203F48] outline-none focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
           />
+
         </div>
 
 
         <button
           type="submit"
           disabled={
-            saving || !imageUrl
+            saving ||
+            !uploadedAsset
           }
           className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -302,6 +362,7 @@ export default function PortfolioManager({
             Portfolio
           </p>
 
+
           <span className="rounded-full bg-[#EDF7F8] px-3 py-1 text-xs font-bold text-[#087F8C]">
             {items.length} photos
           </span>
@@ -310,13 +371,16 @@ export default function PortfolioManager({
 
 
         {items.length === 0 ? (
+
           <div className="flex min-h-[180px] flex-col items-center justify-center rounded-2xl border border-dashed border-[#D6E2E5] bg-[#FAFCFC] px-5 text-center">
 
             <ImageIcon className="h-7 w-7 text-[#9FB0B5]" />
 
+
             <p className="mt-4 text-sm font-semibold text-[#607981]">
               No portfolio photos yet
             </p>
+
 
             <p className="mt-1 max-w-xs text-xs leading-5 text-[#91A1A6]">
               Upload your first photograph to start building your public portfolio.
@@ -338,8 +402,12 @@ export default function PortfolioManager({
                   <div className="aspect-[4/3] bg-[#EDF2F3]">
 
                     <img
-                      src={item.image_url}
-                      alt={item.title}
+                      src={
+                        item.image_url
+                      }
+                      alt={
+                        item.title
+                      }
                       className="h-full w-full object-cover"
                     />
 
@@ -361,19 +429,21 @@ export default function PortfolioManager({
 
 
                     <button
+                      type="button"
+                      disabled={
+                        deleting ===
+                        item.id
+                      }
                       onClick={() =>
                         deleteItem(
                           item.id
                         )
                       }
-                      disabled={
-                        deleting === item.id
-                      }
-                      type="button"
                       className="mt-4 flex h-9 items-center gap-2 rounded-xl bg-[#FFF5F6] px-3 text-xs font-semibold text-[#A84E58] transition hover:bg-[#FDEBED]"
                     >
 
-                      {deleting === item.id ? (
+                      {deleting ===
+                      item.id ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <Trash2 className="h-3.5 w-3.5" />
