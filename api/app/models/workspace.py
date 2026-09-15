@@ -69,3 +69,22 @@ class Workspace(TimestampMixin, Base):
         back_populates="workspace",
         cascade="all, delete-orphan",
     )
+
+    website_settings = relationship(
+        "WebsiteSettings",
+        back_populates="workspace",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    portfolio_items = relationship(
+        "PortfolioItem",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+    )
+
+    photography_packages = relationship(
+        "PhotographyPackage",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+    )    
