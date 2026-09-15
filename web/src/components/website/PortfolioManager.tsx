@@ -11,6 +11,7 @@ import {
   useState,
 } from "react"
 
+import ImageUploader from "@/components/website/ImageUploader"
 import { apiFetch } from "@/lib/api"
 
 
@@ -28,7 +29,9 @@ export type PortfolioItem = {
 
 type Props = {
   items: PortfolioItem[]
-  onChange: (items: PortfolioItem[]) => void
+  onChange: (
+    items: PortfolioItem[]
+  ) => void
 }
 
 
@@ -36,16 +39,26 @@ export default function PortfolioManager({
   items,
   onChange,
 }: Props) {
-  const [title, setTitle] = useState("")
-  const [category, setCategory] = useState("")
-  const [description, setDescription] = useState("")
-  const [imageUrl, setImageUrl] = useState("")
+  const [title, setTitle] =
+    useState("")
 
-  const [saving, setSaving] = useState(false)
+  const [category, setCategory] =
+    useState("")
+
+  const [description, setDescription] =
+    useState("")
+
+  const [imageUrl, setImageUrl] =
+    useState("")
+
+  const [saving, setSaving] =
+    useState(false)
+
   const [deleting, setDeleting] =
     useState<string | null>(null)
 
-  const [error, setError] = useState("")
+  const [error, setError] =
+    useState("")
 
 
   async function handleSubmit(
@@ -54,6 +67,14 @@ export default function PortfolioManager({
     event.preventDefault()
 
     setError("")
+
+    if (!imageUrl) {
+      setError(
+        "Please upload a portfolio photo first."
+      )
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -62,8 +83,10 @@ export default function PortfolioManager({
           "/api/website/portfolio",
           {
             method: "POST",
+
             body: JSON.stringify({
               title,
+
               category:
                 category || null,
 
@@ -83,10 +106,12 @@ export default function PortfolioManager({
           }
         )
 
+
       onChange([
         ...items,
         created,
       ])
+
 
       setTitle("")
       setCategory("")
@@ -144,6 +169,7 @@ export default function PortfolioManager({
     <div className="space-y-8">
 
       <div>
+
         <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#0A929F]">
           Portfolio
         </p>
@@ -153,9 +179,9 @@ export default function PortfolioManager({
         </h2>
 
         <p className="mt-2 text-sm leading-6 text-[#768B92]">
-          Add selected photography that represents your style
-          and the type of work you want customers to see.
+          Upload selected photography that represents your style and the work you want customers to see.
         </p>
+
       </div>
 
 
@@ -182,6 +208,15 @@ export default function PortfolioManager({
         </div>
 
 
+        <ImageUploader
+          label="Photo"
+          value={imageUrl}
+          purpose="portfolio"
+          aspect="wide"
+          onUploaded={setImageUrl}
+        />
+
+
         <div>
           <label className="mb-2 block text-sm font-semibold text-[#36535C]">
             Photo title
@@ -191,7 +226,9 @@ export default function PortfolioManager({
             required
             value={title}
             onChange={(event) =>
-              setTitle(event.target.value)
+              setTitle(
+                event.target.value
+              )
             }
             placeholder="Wedding in Kuala Lumpur"
             className="h-12 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
@@ -236,34 +273,14 @@ export default function PortfolioManager({
         </div>
 
 
-        <div>
-          <label className="mb-2 block text-sm font-semibold text-[#36535C]">
-            Image URL
-          </label>
-
-          <input
-            required
-            value={imageUrl}
-            onChange={(event) =>
-              setImageUrl(
-                event.target.value
-              )
-            }
-            placeholder="https://..."
-            className="h-12 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
-          />
-
-          <p className="mt-2 text-xs leading-5 text-[#8C9BA0]">
-            Temporary during development. R2 direct upload comes next.
-          </p>
-        </div>
-
-
         <button
           type="submit"
-          disabled={saving}
-          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:opacity-60"
+          disabled={
+            saving || !imageUrl
+          }
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:cursor-not-allowed disabled:opacity-50"
         >
+
           {saving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
@@ -271,6 +288,7 @@ export default function PortfolioManager({
           )}
 
           Add to portfolio
+
         </button>
 
       </form>
@@ -292,7 +310,6 @@ export default function PortfolioManager({
 
 
         {items.length === 0 ? (
-
           <div className="flex min-h-[180px] flex-col items-center justify-center rounded-2xl border border-dashed border-[#D6E2E5] bg-[#FAFCFC] px-5 text-center">
 
             <ImageIcon className="h-7 w-7 text-[#9FB0B5]" />
@@ -302,7 +319,7 @@ export default function PortfolioManager({
             </p>
 
             <p className="mt-1 max-w-xs text-xs leading-5 text-[#91A1A6]">
-              Add your first photograph to start building your public portfolio.
+              Upload your first photograph to start building your public portfolio.
             </p>
 
           </div>
@@ -335,6 +352,7 @@ export default function PortfolioManager({
                       {item.title}
                     </p>
 
+
                     {item.category && (
                       <p className="mt-1 text-xs uppercase tracking-[0.08em] text-[#899A9F]">
                         {item.category}
@@ -355,8 +373,7 @@ export default function PortfolioManager({
                       className="mt-4 flex h-9 items-center gap-2 rounded-xl bg-[#FFF5F6] px-3 text-xs font-semibold text-[#A84E58] transition hover:bg-[#FDEBED]"
                     >
 
-                      {deleting ===
-                      item.id ? (
+                      {deleting === item.id ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <Trash2 className="h-3.5 w-3.5" />
