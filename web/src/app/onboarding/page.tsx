@@ -2,7 +2,6 @@ import { redirect } from "next/navigation"
 
 import { createClient } from "@/lib/supabase/server"
 
-
 import OnboardingForm from "./OnboardingForm"
 
 
@@ -39,12 +38,17 @@ export default async function OnboardingPage() {
     await supabase.auth.getSession()
 
 
-  // -----------------------------------------------
-  // EXISTING PHOTOGRAPHER
-  // -----------------------------------------------
+  let alreadyOnboarded = false
+
+
+  // --------------------------------------------------
+  // CHECK EXISTING WORKSPACE
+  // --------------------------------------------------
   //
-  // If this account already owns/belongs to
-  // a workspace, onboarding should never appear.
+  // Important:
+  // Do NOT call redirect() inside this try/catch.
+  // Next.js redirects work by throwing a special
+  // NEXT_REDIRECT exception.
   //
   if (session?.access_token) {
     try {
@@ -72,20 +76,13 @@ export default async function OnboardingPage() {
             (await response.json()) as WorkspaceResponse
 
 
-          if (
-            workspace.onboarded &&
-            workspace.workspace
-          ) {
-            redirect("/dashboard")
-          }
+          alreadyOnboarded =
+            workspace.onboarded === true &&
+            workspace.workspace !== null
         }
       }
+
     } catch (error) {
-      // Do not treat a temporary API problem as
-      // proof that the user needs a new workspace.
-      //
-      // The onboarding form/API still protects
-      // against duplicate workspace creation.
       console.error(
         "Unable to check onboarding status:",
         error
@@ -93,6 +90,22 @@ export default async function OnboardingPage() {
     }
   }
 
+
+  // --------------------------------------------------
+  // EXISTING PHOTOGRAPHER
+  // --------------------------------------------------
+  //
+  // Redirect OUTSIDE the try/catch so Next.js
+  // can handle NEXT_REDIRECT correctly.
+  //
+  if (alreadyOnboarded) {
+    redirect("/dashboard")
+  }
+
+
+  // --------------------------------------------------
+  // NEW PHOTOGRAPHER
+  // --------------------------------------------------
 
   const fullName =
     typeof user.user_metadata
