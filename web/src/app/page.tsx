@@ -121,14 +121,14 @@ export default function Home() {
           <div className="flex items-center gap-2">
 
             <Link
-              href="/login"
+              href="https://app.ezfotoo.com/login"
               className="hidden h-10 items-center rounded-xl px-4 text-sm font-semibold text-[#36545D] transition hover:bg-[#F1F6F7] sm:flex"
             >
               Sign in
             </Link>
 
             <Link
-              href="/register"
+              href="https://app.ezfotoo.com/register"
               className="flex h-10 items-center gap-2 rounded-xl bg-[#073B4C] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0B5363]"
             >
               Get started
@@ -182,7 +182,7 @@ export default function Home() {
             <div className="mt-9 flex flex-col gap-3 sm:flex-row">
 
               <Link
-                href="/register"
+                href="https://app.ezfotoo.com/register"
                 className="flex h-13 items-center justify-center gap-2 rounded-xl bg-[#073B4C] px-6 py-3.5 text-sm font-semibold text-white shadow-[0_14px_35px_rgba(7,59,76,0.18)] transition hover:-translate-y-0.5 hover:bg-[#0B5363]"
               >
                 Start with EZFOTOO
@@ -191,7 +191,7 @@ export default function Home() {
 
 
               <Link
-                href="/login"
+                href="https://app.ezfotoo.com/login"
                 className="flex h-13 items-center justify-center gap-2 rounded-xl border border-[#D7E3E6] bg-white px-6 py-3.5 text-sm font-semibold text-[#36545D] transition hover:border-[#AFD7DB] hover:bg-[#F9FCFC]"
               >
                 Photographer login
@@ -542,7 +542,7 @@ export default function Home() {
               <div className="mt-8 flex justify-center">
 
                 <Link
-                  href="/register"
+                  href="https://app.ezfotoo.com/register"
                   className="flex items-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-[#073B4C] shadow-lg transition hover:-translate-y-0.5"
                 >
                   Create your workspace
@@ -593,14 +593,14 @@ export default function Home() {
           <div className="flex items-center gap-5">
 
             <Link
-              href="/login"
+              href="https://app.ezfotoo.com/login"
               className="text-xs font-semibold text-[#647C84] hover:text-[#073B4C]"
             >
               Sign in
             </Link>
 
             <Link
-              href="/register"
+              href="https://app.ezfotoo.com/register"
               className="text-xs font-semibold text-[#0A929F]"
             >
               Get started
