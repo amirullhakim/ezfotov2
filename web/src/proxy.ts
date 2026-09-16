@@ -20,6 +20,16 @@ const RESERVED_SUBDOMAINS = new Set([
 ])
 
 
+const APP_PATHS = [
+  "/login",
+  "/register",
+  "/auth",
+  "/onboarding",
+  "/dashboard",
+  "/admin",
+]
+
+
 function getHostname(
   request: NextRequest
 ) {
@@ -61,8 +71,6 @@ function getTenantSlug(
     return null
   }
 
-  // Do not treat nested subdomains
-  // as photographer workspaces.
   if (
     subdomain.includes(".")
   ) {
@@ -81,6 +89,19 @@ function getTenantSlug(
 }
 
 
+function isAppPath(
+  pathname: string
+) {
+  return APP_PATHS.some(
+    (path) =>
+      pathname === path ||
+      pathname.startsWith(
+        `${path}/`
+      )
+  )
+}
+
+
 export async function proxy(
   request: NextRequest
 ) {
@@ -92,12 +113,41 @@ export async function proxy(
 
 
   // --------------------------------------------------
-  // Photographer application
+  // ROOT MARKETING DOMAIN
+  // --------------------------------------------------
+  //
+  // ezfotoo.com/dashboard
+  //          ↓
+  // app.ezfotoo.com/dashboard
+  //
+  if (
+    (
+      hostname === ROOT_DOMAIN ||
+      hostname === `www.${ROOT_DOMAIN}`
+    ) &&
+    isAppPath(pathname)
+  ) {
+    const url =
+      request.nextUrl.clone()
+
+    url.hostname =
+      `app.${ROOT_DOMAIN}`
+
+    url.protocol = "https:"
+
+    return NextResponse.redirect(
+      url
+    )
+  }
+
+
+  // --------------------------------------------------
+  // PHOTOGRAPHER APP
   // --------------------------------------------------
   //
   // app.ezfotoo.com
   //      ↓
-  // /login
+  // app.ezfotoo.com/login
   //
   if (
     hostname ===
@@ -116,12 +166,10 @@ export async function proxy(
 
 
   // --------------------------------------------------
-  // Photographer tenant website
+  // TENANT PHOTOGRAPHER WEBSITE
   // --------------------------------------------------
   //
   // mirulphotography.ezfotoo.com
-  //               ↓
-  // slug = mirulphotography
   //               ↓
   // /site/mirulphotography
   //
@@ -130,7 +178,6 @@ export async function proxy(
 
 
   if (tenantSlug) {
-    // Prevent any accidental rewrite loop.
     if (
       pathname.startsWith(
         "/site/"
@@ -153,16 +200,8 @@ export async function proxy(
 
 
   // --------------------------------------------------
-  // Normal EZFOTOO application
+  // SUPABASE SESSION
   // --------------------------------------------------
-  //
-  // ezfotoo.com
-  // app.ezfotoo.com/login
-  // app.ezfotoo.com/dashboard
-  //
-  // Continue using our existing
-  // Supabase session handling.
-  //
   return await updateSession(
     request
   )
