@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     r2_public_url: str | None = None
 
     # --------------------------------------------------
+    # Vercel
+    # --------------------------------------------------
+    vercel_access_token: str | None = None
+    vercel_project_id: str | None = None
+    vercel_root_domain: str = "ezfotoo.com"
+
+    # --------------------------------------------------
     # Redis
     # --------------------------------------------------
     redis_url: str | None = None
