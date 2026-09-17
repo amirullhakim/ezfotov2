@@ -16,6 +16,7 @@ from fastapi import (
 from sqlalchemy import (
     func,
     select,
+    update,
 )
 from sqlalchemy.orm import Session
 
@@ -728,6 +729,711 @@ def list_gallery_photos(
 
 
 # --------------------------------------------------
+# SET GALLERY COVER
+# --------------------------------------------------
+
+
+@router.patch(
+    "/{gallery_id}/photos/{photo_id}/cover"
+)
+def set_gallery_photo_cover(
+    gallery_id: str,
+    photo_id: str,
+    current_user: dict = Depends(
+        get_current_user
+    ),
+    db: Session = Depends(
+        get_db
+    ),
+):
+    workspace, _ = (
+        get_gallery_workspace(
+            current_user,
+            db,
+        )
+    )
+
+
+    gallery = (
+        get_workspace_gallery(
+            db=db,
+            workspace_id=
+                workspace.id,
+            gallery_id=
+                gallery_id,
+        )
+    )
+
+
+    try:
+        parsed_photo_id = (
+            uuid.UUID(
+                photo_id
+            )
+        )
+
+    except ValueError:
+        raise HTTPException(
+            status_code=
+                status.HTTP_400_BAD_REQUEST,
+            detail=
+                "Invalid photo ID.",
+        )
+
+
+    photo = db.scalar(
+        select(
+            GalleryPhoto
+        ).where(
+            GalleryPhoto.id
+            == parsed_photo_id,
+
+            GalleryPhoto.workspace_id
+            == workspace.id,
+
+            GalleryPhoto.gallery_id
+            == gallery.id,
+
+            GalleryPhoto.status
+            == "ACTIVE",
+        )
+    )
+
+
+    if not photo:
+        raise HTTPException(
+            status_code=
+                status.HTTP_404_NOT_FOUND,
+            detail=
+                "Photo not found.",
+        )
+
+
+    if not photo.is_visible:
+        raise HTTPException(
+            status_code=
+                status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "A hidden photo cannot "
+                "be used as the gallery cover."
+            ),
+        )
+
+
+    # Remove cover status from every photo
+    # in this gallery.
+    db.execute(
+        update(
+            GalleryPhoto
+        )
+        .where(
+            GalleryPhoto.workspace_id
+            == workspace.id,
+
+            GalleryPhoto.gallery_id
+            == gallery.id,
+
+            GalleryPhoto.status
+            == "ACTIVE",
+        )
+        .values(
+            is_cover=False
+        )
+    )
+
+
+    photo.is_cover = True
+
+
+    db.commit()
+
+    db.refresh(
+        photo
+    )
+
+
+    return {
+        "ok":
+            True,
+
+        "photo_id":
+            str(photo.id),
+
+        "is_cover":
+            True,
+    }
+
+
+# --------------------------------------------------
+# SHOW / HIDE GALLERY PHOTO
+# --------------------------------------------------
+
+
+@router.patch(
+    "/{gallery_id}/photos/{photo_id}/visibility"
+)
+def update_gallery_photo_visibility(
+    gallery_id: str,
+    photo_id: str,
+
+    visible: bool,
+
+    current_user: dict = Depends(
+        get_current_user
+    ),
+    db: Session = Depends(
+        get_db
+    ),
+):
+    workspace, _ = (
+        get_gallery_workspace(
+            current_user,
+            db,
+        )
+    )
+
+
+    gallery = (
+        get_workspace_gallery(
+            db=db,
+            workspace_id=
+                workspace.id,
+            gallery_id=
+                gallery_id,
+        )
+    )
+
+
+    try:
+        parsed_photo_id = (
+            uuid.UUID(
+                photo_id
+            )
+        )
+
+    except ValueError:
+        raise HTTPException(
+            status_code=
+                status.HTTP_400_BAD_REQUEST,
+            detail=
+                "Invalid photo ID.",
+        )
+
+
+    photo = db.scalar(
+        select(
+            GalleryPhoto
+        ).where(
+            GalleryPhoto.id
+            == parsed_photo_id,
+
+            GalleryPhoto.workspace_id
+            == workspace.id,
+
+            GalleryPhoto.gallery_id
+            == gallery.id,
+
+            GalleryPhoto.status
+            == "ACTIVE",
+        )
+    )
+
+
+    if not photo:
+        raise HTTPException(
+            status_code=
+                status.HTTP_404_NOT_FOUND,
+            detail=
+                "Photo not found.",
+        )
+
+
+    # Nothing to change.
+    if (
+        photo.is_visible
+        == visible
+    ):
+        return {
+            "ok":
+                True,
+
+            "photo_id":
+                str(photo.id),
+
+            "is_visible":
+                photo.is_visible,
+
+            "is_cover":
+                photo.is_cover,
+        }
+
+
+    # --------------------------------------------------
+    # SHOW
+    # --------------------------------------------------
+
+    if visible:
+        photo.is_visible = True
+
+
+        existing_cover = db.scalar(
+            select(
+                GalleryPhoto
+            ).where(
+                GalleryPhoto.workspace_id
+                == workspace.id,
+
+                GalleryPhoto.gallery_id
+                == gallery.id,
+
+                GalleryPhoto.status
+                == "ACTIVE",
+
+                GalleryPhoto.is_visible.is_(
+                    True
+                ),
+
+                GalleryPhoto.is_cover.is_(
+                    True
+                ),
+
+                GalleryPhoto.id
+                != photo.id,
+            )
+        )
+
+
+        # If there is currently no usable cover,
+        # make this newly-visible image the cover.
+        if not existing_cover:
+            photo.is_cover = True
+
+
+    # --------------------------------------------------
+    # HIDE
+    # --------------------------------------------------
+
+    else:
+        was_cover = (
+            photo.is_cover
+        )
+
+
+        photo.is_visible = False
+
+        photo.is_cover = False
+
+
+        if was_cover:
+            replacement_cover = db.scalar(
+                select(
+                    GalleryPhoto
+                )
+                .where(
+                    GalleryPhoto.workspace_id
+                    == workspace.id,
+
+                    GalleryPhoto.gallery_id
+                    == gallery.id,
+
+                    GalleryPhoto.id
+                    != photo.id,
+
+                    GalleryPhoto.status
+                    == "ACTIVE",
+
+                    GalleryPhoto.is_visible.is_(
+                        True
+                    ),
+                )
+                .order_by(
+                    GalleryPhoto.sort_order,
+                    GalleryPhoto.created_at,
+                )
+            )
+
+
+            if replacement_cover:
+                replacement_cover.is_cover = (
+                    True
+                )
+
+
+    db.commit()
+
+    db.refresh(
+        photo
+    )
+
+
+    return {
+        "ok":
+            True,
+
+        "photo_id":
+            str(photo.id),
+
+        "is_visible":
+            photo.is_visible,
+
+        "is_cover":
+            photo.is_cover,
+    }
+
+# --------------------------------------------------
+# SET GALLERY COVER
+# --------------------------------------------------
+
+
+@router.patch(
+    "/{gallery_id}/photos/{photo_id}/cover"
+)
+def set_gallery_photo_cover(
+    gallery_id: str,
+    photo_id: str,
+    current_user: dict = Depends(
+        get_current_user
+    ),
+    db: Session = Depends(
+        get_db
+    ),
+):
+    workspace, _ = (
+        get_gallery_workspace(
+            current_user,
+            db,
+        )
+    )
+
+
+    gallery = (
+        get_workspace_gallery(
+            db=db,
+            workspace_id=
+                workspace.id,
+            gallery_id=
+                gallery_id,
+        )
+    )
+
+
+    try:
+        parsed_photo_id = (
+            uuid.UUID(
+                photo_id
+            )
+        )
+
+    except ValueError:
+        raise HTTPException(
+            status_code=
+                status.HTTP_400_BAD_REQUEST,
+            detail=
+                "Invalid photo ID.",
+        )
+
+
+    photo = db.scalar(
+        select(
+            GalleryPhoto
+        ).where(
+            GalleryPhoto.id
+            == parsed_photo_id,
+
+            GalleryPhoto.workspace_id
+            == workspace.id,
+
+            GalleryPhoto.gallery_id
+            == gallery.id,
+
+            GalleryPhoto.status
+            == "ACTIVE",
+        )
+    )
+
+
+    if not photo:
+        raise HTTPException(
+            status_code=
+                status.HTTP_404_NOT_FOUND,
+            detail=
+                "Photo not found.",
+        )
+
+
+    if not photo.is_visible:
+        raise HTTPException(
+            status_code=
+                status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "A hidden photo cannot "
+                "be used as the gallery cover."
+            ),
+        )
+
+
+    # Remove cover status from every photo
+    # in this gallery.
+    db.execute(
+        update(
+            GalleryPhoto
+        )
+        .where(
+            GalleryPhoto.workspace_id
+            == workspace.id,
+
+            GalleryPhoto.gallery_id
+            == gallery.id,
+
+            GalleryPhoto.status
+            == "ACTIVE",
+        )
+        .values(
+            is_cover=False
+        )
+    )
+
+
+    photo.is_cover = True
+
+
+    db.commit()
+
+    db.refresh(
+        photo
+    )
+
+
+    return {
+        "ok":
+            True,
+
+        "photo_id":
+            str(photo.id),
+
+        "is_cover":
+            True,
+    }
+
+
+# --------------------------------------------------
+# SHOW / HIDE GALLERY PHOTO
+# --------------------------------------------------
+
+
+@router.patch(
+    "/{gallery_id}/photos/{photo_id}/visibility"
+)
+def update_gallery_photo_visibility(
+    gallery_id: str,
+    photo_id: str,
+
+    visible: bool,
+
+    current_user: dict = Depends(
+        get_current_user
+    ),
+    db: Session = Depends(
+        get_db
+    ),
+):
+    workspace, _ = (
+        get_gallery_workspace(
+            current_user,
+            db,
+        )
+    )
+
+
+    gallery = (
+        get_workspace_gallery(
+            db=db,
+            workspace_id=
+                workspace.id,
+            gallery_id=
+                gallery_id,
+        )
+    )
+
+
+    try:
+        parsed_photo_id = (
+            uuid.UUID(
+                photo_id
+            )
+        )
+
+    except ValueError:
+        raise HTTPException(
+            status_code=
+                status.HTTP_400_BAD_REQUEST,
+            detail=
+                "Invalid photo ID.",
+        )
+
+
+    photo = db.scalar(
+        select(
+            GalleryPhoto
+        ).where(
+            GalleryPhoto.id
+            == parsed_photo_id,
+
+            GalleryPhoto.workspace_id
+            == workspace.id,
+
+            GalleryPhoto.gallery_id
+            == gallery.id,
+
+            GalleryPhoto.status
+            == "ACTIVE",
+        )
+    )
+
+
+    if not photo:
+        raise HTTPException(
+            status_code=
+                status.HTTP_404_NOT_FOUND,
+            detail=
+                "Photo not found.",
+        )
+
+
+    # Nothing to change.
+    if (
+        photo.is_visible
+        == visible
+    ):
+        return {
+            "ok":
+                True,
+
+            "photo_id":
+                str(photo.id),
+
+            "is_visible":
+                photo.is_visible,
+
+            "is_cover":
+                photo.is_cover,
+        }
+
+
+    # --------------------------------------------------
+    # SHOW
+    # --------------------------------------------------
+
+    if visible:
+        photo.is_visible = True
+
+
+        existing_cover = db.scalar(
+            select(
+                GalleryPhoto
+            ).where(
+                GalleryPhoto.workspace_id
+                == workspace.id,
+
+                GalleryPhoto.gallery_id
+                == gallery.id,
+
+                GalleryPhoto.status
+                == "ACTIVE",
+
+                GalleryPhoto.is_visible.is_(
+                    True
+                ),
+
+                GalleryPhoto.is_cover.is_(
+                    True
+                ),
+
+                GalleryPhoto.id
+                != photo.id,
+            )
+        )
+
+
+        # If there is currently no usable cover,
+        # make this newly-visible image the cover.
+        if not existing_cover:
+            photo.is_cover = True
+
+
+    # --------------------------------------------------
+    # HIDE
+    # --------------------------------------------------
+
+    else:
+        was_cover = (
+            photo.is_cover
+        )
+
+
+        photo.is_visible = False
+
+        photo.is_cover = False
+
+
+        if was_cover:
+            replacement_cover = db.scalar(
+                select(
+                    GalleryPhoto
+                )
+                .where(
+                    GalleryPhoto.workspace_id
+                    == workspace.id,
+
+                    GalleryPhoto.gallery_id
+                    == gallery.id,
+
+                    GalleryPhoto.id
+                    != photo.id,
+
+                    GalleryPhoto.status
+                    == "ACTIVE",
+
+                    GalleryPhoto.is_visible.is_(
+                        True
+                    ),
+                )
+                .order_by(
+                    GalleryPhoto.sort_order,
+                    GalleryPhoto.created_at,
+                )
+            )
+
+
+            if replacement_cover:
+                replacement_cover.is_cover = (
+                    True
+                )
+
+
+    db.commit()
+
+    db.refresh(
+        photo
+    )
+
+
+    return {
+        "ok":
+            True,
+
+        "photo_id":
+            str(photo.id),
+
+        "is_visible":
+            photo.is_visible,
+
+        "is_cover":
+            photo.is_cover,
+    }
+
+
+# --------------------------------------------------
 # DELETE PHOTO
 # --------------------------------------------------
 
@@ -871,6 +1577,7 @@ def delete_gallery_photo(
     return {
         "ok": True,
     }
+
 
 # --------------------------------------------------
 # GALLERY FAVOURITES SUMMARY
