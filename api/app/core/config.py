@@ -36,13 +36,20 @@ class Settings(BaseSettings):
     supabase_secret_key: str | None = None
 
     # --------------------------------------------------
-    # Cloudflare R2
+    # Cloudflare R2 - Public Media
     # --------------------------------------------------
     r2_account_id: str | None = None
     r2_access_key_id: str | None = None
     r2_secret_access_key: str | None = None
     r2_bucket_name: str | None = None
     r2_public_url: str | None = None
+
+    # --------------------------------------------------
+    # Cloudflare R2 - Private Media
+    # --------------------------------------------------
+    r2_private_access_key_id: str | None = None
+    r2_private_secret_access_key: str | None = None
+    r2_private_bucket_name: str | None = None
 
     # --------------------------------------------------
     # Vercel

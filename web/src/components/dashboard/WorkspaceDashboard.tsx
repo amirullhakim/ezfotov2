@@ -86,8 +86,9 @@ const navigation: NavigationItem[] = [
   {
     label: "Client Galleries",
     icon: Images,
+    href: "/dashboard/galleries",
     serviceCode: "CLIENT_GALLERY",
-    implemented: false,
+    implemented: true,
   },
   {
     label: "Event Sales",
@@ -124,13 +125,17 @@ export default function WorkspaceDashboard({
   const supabase = createClient()
 
 
-  const [data, setData] =
-    useState<WorkspaceData | null>(
-      null
-    )
+  const [
+    data,
+    setData,
+  ] = useState<WorkspaceData | null>(
+    null
+  )
 
-  const [loading, setLoading] =
-    useState(true)
+  const [
+    loading,
+    setLoading,
+  ] = useState(true)
 
 
   useEffect(() => {
@@ -151,7 +156,9 @@ export default function WorkspaceDashboard({
         }
 
 
-        setData(result)
+        setData(
+          result
+        )
 
       } catch {
         router.replace(
@@ -159,7 +166,9 @@ export default function WorkspaceDashboard({
         )
 
       } finally {
-        setLoading(false)
+        setLoading(
+          false
+        )
       }
     }
 
@@ -278,6 +287,18 @@ export default function WorkspaceDashboard({
       router.push(
         "/dashboard/website"
       )
+
+      return
+    }
+
+
+    if (
+      service.code ===
+      "CLIENT_GALLERY"
+    ) {
+      router.push(
+        "/dashboard/galleries"
+      )
     }
   }
 
@@ -364,6 +385,7 @@ export default function WorkspaceDashboard({
 
                       <Icon className="h-[18px] w-[18px]" />
 
+
                       <span>
                         {item.label}
                       </span>
@@ -398,12 +420,14 @@ export default function WorkspaceDashboard({
 
             <button
               type="button"
+              disabled
               className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#A8B5B9]"
             >
 
               <Settings className="h-[18px] w-[18px]" />
 
               Settings
+
 
               <span className="ml-auto rounded-full bg-[#F2F5F6] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-[#91A1A6]">
                 Soon
@@ -431,9 +455,10 @@ export default function WorkspaceDashboard({
         </aside>
 
 
-        {/* MAIN */}
+        {/* MAIN CONTENT */}
         <section className="min-w-0 flex-1">
 
+          {/* HEADER */}
           <header className="flex h-[78px] items-center justify-between border-b border-[#E3EAEC] bg-white px-6 lg:px-9">
 
             <div>
@@ -468,6 +493,7 @@ export default function WorkspaceDashboard({
 
           <div className="mx-auto max-w-[1440px] px-6 py-9 lg:px-10">
 
+            {/* INTRO */}
             <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
 
               <div>
@@ -565,8 +591,12 @@ export default function WorkspaceDashboard({
                       const clickable =
                         service.status ===
                           "ACTIVE" &&
-                        service.code ===
-                          "WEBSITE"
+                        (
+                          service.code ===
+                            "WEBSITE" ||
+                          service.code ===
+                            "CLIENT_GALLERY"
+                        )
 
 
                       return (
@@ -643,6 +673,7 @@ export default function WorkspaceDashboard({
               {/* RIGHT COLUMN */}
               <section className="space-y-5">
 
+                {/* WORKSPACE ADDRESS */}
                 <div className="ez-card p-6">
 
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#E6F8F9]">
@@ -667,12 +698,13 @@ export default function WorkspaceDashboard({
 
 
                   <p className="mt-3 text-xs leading-5 text-[#899A9F]">
-                    Your photographer website will be published here when the Website service is activated.
+                    Your photographer website, client galleries and future event experiences live under this photography brand.
                   </p>
 
                 </div>
 
 
+                {/* READY CARD */}
                 <div className="rounded-[22px] bg-[#073B4C] p-6 text-white">
 
                   <Camera className="h-6 w-6 text-[#55D9E2]" />
@@ -684,7 +716,7 @@ export default function WorkspaceDashboard({
 
 
                   <p className="mt-2 text-sm leading-6 text-[#B8CDD2]">
-                    We will build each service step by step while keeping everything under one professional photography brand.
+                    Manage your website and deliver private photography galleries to clients from one workspace.
                   </p>
 
                 </div>

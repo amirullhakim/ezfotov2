@@ -8,6 +8,9 @@ from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
 from app.models.workspace_service import WorkspaceService
 from app.models.media_asset import MediaAsset
+from app.models.client_gallery import ClientGallery
+from app.models.gallery_favourite import GalleryFavourite
+from app.models.gallery_photo import GalleryPhoto
 
 __all__ = [
     "Profile",
@@ -20,4 +23,7 @@ __all__ = [
     "PortfolioItem",
     "PhotographyPackage",
     "MediaAsset",
+    "ClientGallery",
+    "GalleryFavourite",
+    "GalleryPhoto",
 ]
