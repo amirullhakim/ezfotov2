@@ -612,7 +612,7 @@ export default function GalleryDetailManager({
         )
 
         setStatusMessage(
-          "A new private link was generated. The previous private link is no longer valid."
+          "A new private link was generated. The previous link is no longer valid."
         )
       }
 
@@ -1361,25 +1361,27 @@ export default function GalleryDetailManager({
               />
 
 
-              <div className="mt-5 rounded-2xl bg-[#F5F9FA] p-4">
+              <div className="mt-5 rounded-2xl border border-[#E3EBED] bg-[#F7FAFB] p-4">
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-start gap-3">
 
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#E4ECEE] bg-white shadow-[0_2px_8px_rgba(20,55,65,0.04)]">
 
                     <PrivacyIcon className="h-4 w-4 text-[#0A929F]" />
 
                   </div>
 
 
-                  <div>
+                  <div className="min-w-0">
 
-                    <p className="text-sm font-semibold text-[#31515A]">
+                    <p className="text-sm font-semibold text-[#294A53]">
                       {privacy.label}
                     </p>
 
-                    <p className="mt-0.5 text-xs text-[#81949A]">
-                      /gallery/{gallery.slug}
+                    <p className="mt-1 text-xs leading-5 text-[#7B8F96]">
+                      {getPrivacyDescription(
+                        gallery.privacy_mode
+                      )}
                     </p>
 
                   </div>
@@ -1414,7 +1416,7 @@ export default function GalleryDetailManager({
                           normalGalleryLink
                         )
                       }
-                      className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E]"
+                      className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E] transition hover:bg-[#F1F6F7]"
                     >
 
                       {copiedLink ? (
@@ -1443,11 +1445,6 @@ export default function GalleryDetailManager({
 
                 <div className="mt-5">
 
-                  <p className="text-xs leading-5 text-[#7C9097]">
-                    Private galleries use a secret link. For security, the existing secret cannot be displayed again. Generate a new link when you need to share it.
-                  </p>
-
-
                   <button
                     type="button"
                     disabled={
@@ -1456,7 +1453,7 @@ export default function GalleryDetailManager({
                     onClick={
                       regeneratePrivateLink
                     }
-                    className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#D9E5E7] bg-white text-sm font-semibold text-[#375861] transition hover:bg-[#F5F9FA] disabled:opacity-60"
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#D9E5E7] bg-white text-sm font-semibold text-[#375861] transition hover:bg-[#F5F9FA] disabled:opacity-60"
                   >
 
                     <RefreshCw className="h-4 w-4" />
@@ -1482,7 +1479,7 @@ export default function GalleryDetailManager({
                             privateLink
                           )
                         }
-                        className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E]"
+                        className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E] transition hover:bg-[#F1F6F7]"
                       >
 
                         {copiedLink ? (
@@ -1522,11 +1519,6 @@ export default function GalleryDetailManager({
                     </p>
 
                   </div>
-
-
-                  <p className="mt-2 text-xs leading-5 text-[#7C9097]">
-                    The current password cannot be viewed because EZFOTOO stores only a secure hash. Enter a new password to replace it.
-                  </p>
 
 
                   <input
@@ -1980,6 +1972,33 @@ function MiniStat({
 }
 
 
+function getPrivacyDescription(
+  mode: PrivacyMode
+) {
+  if (
+    mode === "PUBLIC"
+  ) {
+    return (
+      "Anyone with the gallery link can view this gallery."
+    )
+  }
+
+
+  if (
+    mode === "PASSWORD"
+  ) {
+    return (
+      "Visitors must enter the gallery password before viewing."
+    )
+  }
+
+
+  return (
+    "Only people with the private share link can access this gallery."
+  )
+}
+
+
 function getPrivacyPresentation(
   mode: PrivacyMode
 ) {
@@ -1987,7 +2006,7 @@ function getPrivacyPresentation(
     mode === "PUBLIC"
   ) {
     return {
-      label: "Public",
+      label: "Public gallery",
       icon: Eye,
     }
   }
@@ -2004,7 +2023,7 @@ function getPrivacyPresentation(
 
 
   return {
-    label: "Private link",
+    label: "Private gallery",
     icon: Link2,
   }
 }
