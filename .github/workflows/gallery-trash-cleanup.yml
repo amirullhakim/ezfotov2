@@ -1,0 +1,36 @@
+name: Purge expired gallery trash
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "17 2 * * *"
+      timezone: "Asia/Kuala_Lumpur"
+
+concurrency:
+  group: gallery-trash-cleanup
+  cancel-in-progress: false
+
+jobs:
+  purge:
+    name: Purge expired galleries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Call EZFOTOO cleanup endpoint
+        env:
+          CLEANUP_SECRET: ${{ secrets.GALLERY_CLEANUP_SECRET }}
+
+        run: |
+          set -euo pipefail
+
+          response=$(curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --request POST \
+            --header "X-Cleanup-Key: ${CLEANUP_SECRET}" \
+            "https://api.ezfotoo.com/api/internal/gallery-trash/purge-expired")
+
+          echo "EZFOTOO cleanup result:"
+          echo "${response}"
