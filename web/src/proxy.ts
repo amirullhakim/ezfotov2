@@ -6,18 +6,20 @@ import {
 import { updateSession } from "@/lib/supabase/proxy"
 
 
-const ROOT_DOMAIN = "ezfotoo.com"
+const ROOT_DOMAIN =
+  "ezfotoo.com"
 
 
-const RESERVED_SUBDOMAINS = new Set([
-  "www",
-  "app",
-  "api",
-  "media",
-  "jobs",
-  "admin",
-  "support",
-])
+const RESERVED_SUBDOMAINS =
+  new Set([
+    "www",
+    "app",
+    "api",
+    "media",
+    "jobs",
+    "admin",
+    "support",
+  ])
 
 
 const APP_PATHS = [
@@ -40,7 +42,9 @@ function getHostname(
 
   const host =
     forwardedHost ??
-    request.headers.get("host") ??
+    request.headers.get(
+      "host"
+    ) ??
     ""
 
   return host
@@ -55,11 +59,15 @@ function getTenantSlug(
   const suffix =
     `.${ROOT_DOMAIN}`
 
+
   if (
-    !hostname.endsWith(suffix)
+    !hostname.endsWith(
+      suffix
+    )
   ) {
     return null
   }
+
 
   const subdomain =
     hostname.slice(
@@ -67,15 +75,18 @@ function getTenantSlug(
       -suffix.length
     )
 
+
   if (!subdomain) {
     return null
   }
+
 
   if (
     subdomain.includes(".")
   ) {
     return null
   }
+
 
   if (
     RESERVED_SUBDOMAINS.has(
@@ -84,6 +95,7 @@ function getTenantSlug(
   ) {
     return null
   }
+
 
   return subdomain
 }
@@ -106,7 +118,9 @@ export async function proxy(
   request: NextRequest
 ) {
   const hostname =
-    getHostname(request)
+    getHostname(
+      request
+    )
 
   const pathname =
     request.nextUrl.pathname
@@ -115,17 +129,17 @@ export async function proxy(
   // --------------------------------------------------
   // ROOT MARKETING DOMAIN
   // --------------------------------------------------
-  //
-  // ezfotoo.com/dashboard
-  //          ↓
-  // app.ezfotoo.com/dashboard
-  //
+
   if (
     (
-      hostname === ROOT_DOMAIN ||
-      hostname === `www.${ROOT_DOMAIN}`
+      hostname ===
+        ROOT_DOMAIN ||
+      hostname ===
+        `www.${ROOT_DOMAIN}`
     ) &&
-    isAppPath(pathname)
+    isAppPath(
+      pathname
+    )
   ) {
     const url =
       request.nextUrl.clone()
@@ -133,7 +147,8 @@ export async function proxy(
     url.hostname =
       `app.${ROOT_DOMAIN}`
 
-    url.protocol = "https:"
+    url.protocol =
+      "https:"
 
     return NextResponse.redirect(
       url
@@ -144,11 +159,7 @@ export async function proxy(
   // --------------------------------------------------
   // PHOTOGRAPHER APP
   // --------------------------------------------------
-  //
-  // app.ezfotoo.com
-  //      ↓
-  // app.ezfotoo.com/login
-  //
+
   if (
     hostname ===
       `app.${ROOT_DOMAIN}` &&
@@ -157,7 +168,8 @@ export async function proxy(
     const url =
       request.nextUrl.clone()
 
-    url.pathname = "/login"
+    url.pathname =
+      "/login"
 
     return NextResponse.redirect(
       url
@@ -166,18 +178,19 @@ export async function proxy(
 
 
   // --------------------------------------------------
-  // TENANT PHOTOGRAPHER WEBSITE
+  // TENANT DOMAIN
   // --------------------------------------------------
-  //
-  // mirulphotography.ezfotoo.com
-  //               ↓
-  // /site/mirulphotography
-  //
+
   const tenantSlug =
-    getTenantSlug(hostname)
+    getTenantSlug(
+      hostname
+    )
 
 
   if (tenantSlug) {
+
+    // Prevent rewriting an already-internal
+    // tenant route.
     if (
       pathname.startsWith(
         "/site/"
@@ -186,6 +199,37 @@ export async function proxy(
       return NextResponse.next()
     }
 
+
+    // ----------------------------------------------
+    // CLIENT GALLERY
+    // ----------------------------------------------
+    //
+    // tenant.ezfotoo.com/gallery/wedding
+    //
+    // internally becomes:
+    //
+    // /site/tenant/gallery/wedding
+    //
+    if (
+      pathname.startsWith(
+        "/gallery/"
+      )
+    ) {
+      const url =
+        request.nextUrl.clone()
+
+      url.pathname =
+        `/site/${tenantSlug}${pathname}`
+
+      return NextResponse.rewrite(
+        url
+      )
+    }
+
+
+    // ----------------------------------------------
+    // PHOTOGRAPHER WEBSITE
+    // ----------------------------------------------
 
     const url =
       request.nextUrl.clone()
@@ -202,6 +246,7 @@ export async function proxy(
   // --------------------------------------------------
   // SUPABASE SESSION
   // --------------------------------------------------
+
   return await updateSession(
     request
   )
