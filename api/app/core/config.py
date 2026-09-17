@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     vercel_root_domain: str = "ezfotoo.com"
 
     # --------------------------------------------------
+    # Gallery Access
+    # --------------------------------------------------
+    gallery_access_secret: str | None = None
+
+    # --------------------------------------------------
     # Redis
     # --------------------------------------------------
     redis_url: str | None = None

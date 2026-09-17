@@ -1,8 +1,10 @@
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import (
     APIRouter,
     Depends,
+    Header,
     HTTPException,
     Query,
     status,
@@ -15,10 +17,18 @@ from app.db.session import get_db
 from app.models import (
     ClientGallery,
     Domain,
+    GalleryFavourite,
     GalleryPhoto,
     Service,
     Workspace,
     WorkspaceService,
+)
+from app.services.gallery_access import (
+    GalleryAccessError,
+    PASSWORD_ACCESS_TTL_SECONDS,
+    create_password_gallery_access_token,
+    hash_gallery_visitor_token,
+    verify_password_gallery_access_token,
 )
 from app.services.gallery_security import (
     verify_gallery_password,
@@ -50,6 +60,11 @@ def utc_now() -> datetime:
     )
 
 
+# --------------------------------------------------
+# GALLERY
+# --------------------------------------------------
+
+
 def get_public_gallery(
     workspace_slug: str,
     gallery_slug: str,
@@ -59,15 +74,18 @@ def get_public_gallery(
         select(Workspace).where(
             Workspace.slug
             == workspace_slug.strip().lower(),
+
             Workspace.status
             == "ACTIVE",
         )
     )
 
+
     if not workspace:
         raise HTTPException(
             status_code=
                 status.HTTP_404_NOT_FOUND,
+
             detail=
                 "Client gallery not found.",
         )
@@ -83,17 +101,21 @@ def get_public_gallery(
         .where(
             WorkspaceService.workspace_id
             == workspace.id,
+
             Service.code
             == "CLIENT_GALLERY",
+
             WorkspaceService.status
             == "ACTIVE",
         )
     )
 
+
     if not gallery_service:
         raise HTTPException(
             status_code=
                 status.HTTP_404_NOT_FOUND,
+
             detail=
                 "Client gallery not found.",
         )
@@ -103,18 +125,22 @@ def get_public_gallery(
         select(ClientGallery).where(
             ClientGallery.workspace_id
             == workspace.id,
+
             ClientGallery.slug
             == gallery_slug.strip().lower(),
+
             ClientGallery.is_published.is_(
                 True
             ),
         )
     )
 
+
     if not gallery:
         raise HTTPException(
             status_code=
                 status.HTTP_404_NOT_FOUND,
+
             detail=
                 "Client gallery not found.",
         )
@@ -124,6 +150,7 @@ def get_public_gallery(
         expires_at = (
             gallery.expires_at
         )
+
 
         if (
             expires_at.tzinfo
@@ -135,31 +162,134 @@ def get_public_gallery(
                 )
             )
 
-        if expires_at <= utc_now():
+
+        if (
+            expires_at <=
+            utc_now()
+        ):
             raise HTTPException(
                 status_code=
                     status.HTTP_410_GONE,
+
                 detail=
                     "This gallery has expired.",
             )
 
 
-    return workspace, gallery
+    return (
+        workspace,
+        gallery,
+    )
+
+
+# --------------------------------------------------
+# ACCESS
+# --------------------------------------------------
+
+
+def require_gallery_access(
+    gallery: ClientGallery,
+
+    private_token: str | None,
+
+    password_access_token: str | None,
+) -> None:
+    if (
+        gallery.privacy_mode
+        == "PUBLIC"
+    ):
+        return
+
+
+    if (
+        gallery.privacy_mode
+        == "PRIVATE"
+    ):
+        if (
+            not private_token
+            or
+            not gallery.access_token_hash
+            or
+            not verify_private_gallery_token(
+                private_token,
+                gallery.access_token_hash,
+            )
+        ):
+            raise HTTPException(
+                status_code=
+                    status.HTTP_403_FORBIDDEN,
+
+                detail=(
+                    "This private gallery link "
+                    "is invalid or no longer active."
+                ),
+            )
+
+        return
+
+
+    if (
+        gallery.privacy_mode
+        == "PASSWORD"
+    ):
+        if (
+            not password_access_token
+            or
+            not verify_password_gallery_access_token(
+                token=
+                    password_access_token,
+
+                gallery_id=
+                    gallery.id,
+
+                current_password_hash=
+                    gallery.password_hash,
+            )
+        ):
+            raise HTTPException(
+                status_code=
+                    status.HTTP_401_UNAUTHORIZED,
+
+                detail=
+                    "Gallery access has expired.",
+            )
+
+        return
+
+
+    raise HTTPException(
+        status_code=
+            status.HTTP_403_FORBIDDEN,
+
+        detail=
+            "Gallery access denied.",
+    )
+
+
+# --------------------------------------------------
+# DOMAIN
+# --------------------------------------------------
 
 
 def get_workspace_domain(
     workspace_id,
     db: Session,
 ):
-    primary_domain = db.scalar(
+    return db.scalar(
         select(Domain).where(
             Domain.workspace_id
             == workspace_id,
-            Domain.is_primary.is_(True),
+
+            Domain.is_primary.is_(
+                True
+            ),
         )
     )
 
-    return primary_domain
+
+# --------------------------------------------------
+# RESPONSES
+# --------------------------------------------------
 
 
 def gallery_metadata_response(
@@ -174,15 +304,18 @@ def gallery_metadata_response(
         )
     )
 
+
     return {
         "workspace": {
-            "id": str(
-                workspace.id
-            ),
+            "id":
+                str(workspace.id),
+
             "name":
                 workspace.name,
+
             "slug":
                 workspace.slug,
+
             "domain": (
                 primary_domain.hostname
                 if primary_domain
@@ -273,6 +406,7 @@ def full_gallery_response(
         view_url = None
         download_url = None
 
+
         try:
             view_url = (
                 generate_private_view_url(
@@ -280,6 +414,7 @@ def full_gallery_response(
                     expires_seconds=600,
                 )
             )
+
 
             if (
                 gallery.allow_downloads
@@ -297,9 +432,8 @@ def full_gallery_response(
                     )
                 )
 
+
         except PrivateStorageError:
-            # Keep the gallery available even if
-            # one individual object cannot be signed.
             view_url = None
             download_url = None
 
@@ -336,22 +470,32 @@ def full_gallery_response(
                 "download_url":
                     download_url,
 
-                "view_url_expires_in":
+                "view_url_expires_in": (
                     600
                     if view_url
-                    else None,
+                    else None
+                ),
             }
         )
 
 
     response.update(
         {
-            "locked": False,
-            "photos": photo_results,
+            "locked":
+                False,
+
+            "photos":
+                photo_results,
         }
     )
 
+
     return response
+
+
+# --------------------------------------------------
+# GET GALLERY
+# --------------------------------------------------
 
 
 @router.get(
@@ -363,6 +507,11 @@ def get_public_client_gallery(
 
     t: str | None = Query(
         default=None,
+    ),
+
+    gallery_access_token: str | None = Header(
+        default=None,
+        alias="X-Gallery-Access",
     ),
 
     db: Session = Depends(
@@ -378,10 +527,7 @@ def get_public_client_gallery(
     )
 
 
-    # --------------------------------------------------
     # PUBLIC
-    # --------------------------------------------------
-
     if (
         gallery.privacy_mode
         == "PUBLIC"
@@ -393,32 +539,21 @@ def get_public_client_gallery(
         )
 
 
-    # --------------------------------------------------
-    # PRIVATE SECRET LINK
-    # --------------------------------------------------
-
+    # PRIVATE
     if (
         gallery.privacy_mode
         == "PRIVATE"
     ):
-        if (
-            not t
-            or
-            not gallery.access_token_hash
-            or
-            not verify_private_gallery_token(
+        require_gallery_access(
+            gallery=
+                gallery,
+
+            private_token=
                 t,
-                gallery.access_token_hash,
-            )
-        ):
-            raise HTTPException(
-                status_code=
-                    status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "This private gallery link "
-                    "is invalid or no longer active."
-                ),
-            )
+
+            password_access_token=
+                None,
+        )
 
 
         return full_gallery_response(
@@ -428,9 +563,27 @@ def get_public_client_gallery(
         )
 
 
-    # --------------------------------------------------
     # PASSWORD
-    # --------------------------------------------------
+    if (
+        gallery_access_token
+        and
+        verify_password_gallery_access_token(
+            token=
+                gallery_access_token,
+
+            gallery_id=
+                gallery.id,
+
+            current_password_hash=
+                gallery.password_hash,
+        )
+    ):
+        return full_gallery_response(
+            workspace,
+            gallery,
+            db,
+        )
+
 
     metadata = (
         gallery_metadata_response(
@@ -440,14 +593,24 @@ def get_public_client_gallery(
         )
     )
 
+
     metadata.update(
         {
-            "locked": True,
-            "photos": [],
+            "locked":
+                True,
+
+            "photos":
+                [],
         }
     )
 
+
     return metadata
+
+
+# --------------------------------------------------
+# PASSWORD UNLOCK
+# --------------------------------------------------
 
 
 @router.post(
@@ -456,6 +619,7 @@ def get_public_client_gallery(
 def unlock_password_gallery(
     workspace_slug: str,
     gallery_slug: str,
+
     payload: GalleryUnlockRequest,
 
     db: Session = Depends(
@@ -478,6 +642,7 @@ def unlock_password_gallery(
         raise HTTPException(
             status_code=
                 status.HTTP_400_BAD_REQUEST,
+
             detail=(
                 "This gallery does not "
                 "require a password."
@@ -496,13 +661,511 @@ def unlock_password_gallery(
         raise HTTPException(
             status_code=
                 status.HTTP_401_UNAUTHORIZED,
+
             detail=
                 "Incorrect gallery password.",
         )
 
 
-    return full_gallery_response(
-        workspace,
-        gallery,
-        db,
+    try:
+        access_token = (
+            create_password_gallery_access_token(
+                gallery_id=
+                    gallery.id,
+
+                password_hash=
+                    gallery.password_hash,
+            )
+        )
+
+    except GalleryAccessError as exc:
+        raise HTTPException(
+            status_code=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+            detail=
+                "Gallery access could not be created.",
+        ) from exc
+
+
+    response = (
+        full_gallery_response(
+            workspace,
+            gallery,
+            db,
+        )
     )
+
+
+    response.update(
+        {
+            "access_token":
+                access_token,
+
+            "access_token_expires_in":
+                PASSWORD_ACCESS_TTL_SECONDS,
+        }
+    )
+
+
+    return response
+
+
+# --------------------------------------------------
+# FAVOURITE HELPERS
+# --------------------------------------------------
+
+
+def require_favourites_enabled(
+    gallery: ClientGallery,
+):
+    if not gallery.allow_favourites:
+        raise HTTPException(
+            status_code=
+                status.HTTP_403_FORBIDDEN,
+
+            detail=(
+                "Favourites are disabled "
+                "for this gallery."
+            ),
+        )
+
+
+def get_gallery_photo(
+    workspace_id: uuid.UUID,
+    gallery_id: uuid.UUID,
+    photo_id: str,
+    db: Session,
+) -> GalleryPhoto:
+    try:
+        parsed_photo_id = (
+            uuid.UUID(
+                photo_id
+            )
+        )
+
+    except ValueError:
+        raise HTTPException(
+            status_code=
+                status.HTTP_400_BAD_REQUEST,
+
+            detail=
+                "Invalid photo ID.",
+        )
+
+
+    photo = db.scalar(
+        select(GalleryPhoto).where(
+            GalleryPhoto.id
+            == parsed_photo_id,
+
+            GalleryPhoto.workspace_id
+            == workspace_id,
+
+            GalleryPhoto.gallery_id
+            == gallery_id,
+
+            GalleryPhoto.status
+            == "ACTIVE",
+
+            GalleryPhoto.is_visible.is_(
+                True
+            ),
+        )
+    )
+
+
+    if not photo:
+        raise HTTPException(
+            status_code=
+                status.HTTP_404_NOT_FOUND,
+
+            detail=
+                "Photo not found.",
+        )
+
+
+    return photo
+
+
+def require_visitor_token(
+    visitor_token: str | None,
+) -> str:
+    if not visitor_token:
+        raise HTTPException(
+            status_code=
+                status.HTTP_400_BAD_REQUEST,
+
+            detail=
+                "Gallery visitor token is required.",
+        )
+
+
+    if (
+        len(visitor_token) < 20
+        or
+        len(visitor_token) > 200
+    ):
+        raise HTTPException(
+            status_code=
+                status.HTTP_400_BAD_REQUEST,
+
+            detail=
+                "Invalid gallery visitor token.",
+        )
+
+
+    return hash_gallery_visitor_token(
+        visitor_token
+    )
+
+
+# --------------------------------------------------
+# LIST FAVOURITES
+# --------------------------------------------------
+
+
+@router.get(
+    "/{workspace_slug}/{gallery_slug}/favourites"
+)
+def get_gallery_favourites(
+    workspace_slug: str,
+    gallery_slug: str,
+
+    t: str | None = Query(
+        default=None,
+    ),
+
+    visitor_token: str | None = Header(
+        default=None,
+        alias="X-Gallery-Visitor",
+    ),
+
+    gallery_access_token: str | None = Header(
+        default=None,
+        alias="X-Gallery-Access",
+    ),
+
+    db: Session = Depends(
+        get_db
+    ),
+):
+    workspace, gallery = (
+        get_public_gallery(
+            workspace_slug,
+            gallery_slug,
+            db,
+        )
+    )
+
+
+    require_gallery_access(
+        gallery=
+            gallery,
+
+        private_token=
+            t,
+
+        password_access_token=
+            gallery_access_token,
+    )
+
+
+    require_favourites_enabled(
+        gallery
+    )
+
+
+    visitor_hash = (
+        require_visitor_token(
+            visitor_token
+        )
+    )
+
+
+    favourites = db.scalars(
+        select(GalleryFavourite)
+        .join(
+            GalleryPhoto,
+            GalleryPhoto.id
+            == GalleryFavourite.photo_id,
+        )
+        .where(
+            GalleryFavourite.workspace_id
+            == workspace.id,
+
+            GalleryFavourite.gallery_id
+            == gallery.id,
+
+            GalleryFavourite.visitor_token
+            == visitor_hash,
+
+            GalleryPhoto.status
+            == "ACTIVE",
+
+            GalleryPhoto.is_visible.is_(
+                True
+            ),
+        )
+        .order_by(
+            GalleryFavourite.created_at,
+        )
+    ).all()
+
+
+    return {
+        "enabled":
+            True,
+
+        "photo_ids": [
+            str(
+                favourite.photo_id
+            )
+            for favourite
+            in favourites
+        ],
+
+        "count":
+            len(favourites),
+    }
+
+
+# --------------------------------------------------
+# ADD FAVOURITE
+# --------------------------------------------------
+
+
+@router.post(
+    "/{workspace_slug}/{gallery_slug}/favourites/{photo_id}"
+)
+def add_gallery_favourite(
+    workspace_slug: str,
+    gallery_slug: str,
+    photo_id: str,
+
+    t: str | None = Query(
+        default=None,
+    ),
+
+    visitor_token: str | None = Header(
+        default=None,
+        alias="X-Gallery-Visitor",
+    ),
+
+    gallery_access_token: str | None = Header(
+        default=None,
+        alias="X-Gallery-Access",
+    ),
+
+    db: Session = Depends(
+        get_db
+    ),
+):
+    workspace, gallery = (
+        get_public_gallery(
+            workspace_slug,
+            gallery_slug,
+            db,
+        )
+    )
+
+
+    require_gallery_access(
+        gallery=
+            gallery,
+
+        private_token=
+            t,
+
+        password_access_token=
+            gallery_access_token,
+    )
+
+
+    require_favourites_enabled(
+        gallery
+    )
+
+
+    photo = (
+        get_gallery_photo(
+            workspace_id=
+                workspace.id,
+
+            gallery_id=
+                gallery.id,
+
+            photo_id=
+                photo_id,
+
+            db=
+                db,
+        )
+    )
+
+
+    visitor_hash = (
+        require_visitor_token(
+            visitor_token
+        )
+    )
+
+
+    existing = db.scalar(
+        select(GalleryFavourite).where(
+            GalleryFavourite.photo_id
+            == photo.id,
+
+            GalleryFavourite.visitor_token
+            == visitor_hash,
+        )
+    )
+
+
+    if not existing:
+        favourite = (
+            GalleryFavourite(
+                workspace_id=
+                    workspace.id,
+
+                gallery_id=
+                    gallery.id,
+
+                photo_id=
+                    photo.id,
+
+                visitor_token=
+                    visitor_hash,
+            )
+        )
+
+
+        db.add(
+            favourite
+        )
+
+        db.commit()
+
+
+    return {
+        "ok":
+            True,
+
+        "favourited":
+            True,
+
+        "photo_id":
+            str(photo.id),
+    }
+
+
+# --------------------------------------------------
+# REMOVE FAVOURITE
+# --------------------------------------------------
+
+
+@router.delete(
+    "/{workspace_slug}/{gallery_slug}/favourites/{photo_id}"
+)
+def remove_gallery_favourite(
+    workspace_slug: str,
+    gallery_slug: str,
+    photo_id: str,
+
+    t: str | None = Query(
+        default=None,
+    ),
+
+    visitor_token: str | None = Header(
+        default=None,
+        alias="X-Gallery-Visitor",
+    ),
+
+    gallery_access_token: str | None = Header(
+        default=None,
+        alias="X-Gallery-Access",
+    ),
+
+    db: Session = Depends(
+        get_db
+    ),
+):
+    workspace, gallery = (
+        get_public_gallery(
+            workspace_slug,
+            gallery_slug,
+            db,
+        )
+    )
+
+
+    require_gallery_access(
+        gallery=
+            gallery,
+
+        private_token=
+            t,
+
+        password_access_token=
+            gallery_access_token,
+    )
+
+
+    require_favourites_enabled(
+        gallery
+    )
+
+
+    photo = (
+        get_gallery_photo(
+            workspace_id=
+                workspace.id,
+
+            gallery_id=
+                gallery.id,
+
+            photo_id=
+                photo_id,
+
+            db=
+                db,
+        )
+    )
+
+
+    visitor_hash = (
+        require_visitor_token(
+            visitor_token
+        )
+    )
+
+
+    favourite = db.scalar(
+        select(GalleryFavourite).where(
+            GalleryFavourite.photo_id
+            == photo.id,
+
+            GalleryFavourite.visitor_token
+            == visitor_hash,
+        )
+    )
+
+
+    if favourite:
+        db.delete(
+            favourite
+        )
+
+        db.commit()
+
+
+    return {
+        "ok":
+            True,
+
+        "favourited":
+            False,
+
+        "photo_id":
+            str(photo.id),
+    }
