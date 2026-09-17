@@ -28,6 +28,7 @@ from app.db.session import (
 from app.models import (
     ClientGallery,
     GalleryPhoto,
+    GalleryFavourite,
 )
 from app.schemas.gallery_photo import (
     GalleryPhotoCompleteRequest,
@@ -869,4 +870,143 @@ def delete_gallery_photo(
 
     return {
         "ok": True,
+    }
+
+# --------------------------------------------------
+# GALLERY FAVOURITES SUMMARY
+# --------------------------------------------------
+
+
+@router.get(
+    "/{gallery_id}/favourites-summary"
+)
+def get_gallery_favourites_summary(
+    gallery_id: str,
+    current_user: dict = Depends(
+        get_current_user
+    ),
+    db: Session = Depends(
+        get_db
+    ),
+):
+    workspace, _ = (
+        get_gallery_workspace(
+            current_user,
+            db,
+        )
+    )
+
+    gallery = (
+        get_workspace_gallery(
+            db=db,
+            workspace_id=
+                workspace.id,
+            gallery_id=
+                gallery_id,
+        )
+    )
+
+
+    favourite_rows = (
+        db.execute(
+            select(
+                GalleryFavourite.photo_id,
+                func.count(
+                    GalleryFavourite.id
+                ).label(
+                    "favourite_count"
+                ),
+            )
+            .join(
+                GalleryPhoto,
+                GalleryPhoto.id
+                == GalleryFavourite.photo_id,
+            )
+            .where(
+                GalleryFavourite.workspace_id
+                == workspace.id,
+
+                GalleryFavourite.gallery_id
+                == gallery.id,
+
+                GalleryPhoto.status
+                == "ACTIVE",
+
+                GalleryPhoto.is_visible.is_(
+                    True
+                ),
+            )
+            .group_by(
+                GalleryFavourite.photo_id
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+
+    unique_visitors = db.scalar(
+        select(
+            func.count(
+                func.distinct(
+                    GalleryFavourite.visitor_token
+                )
+            )
+        ).where(
+            GalleryFavourite.workspace_id
+            == workspace.id,
+
+            GalleryFavourite.gallery_id
+            == gallery.id,
+        )
+    )
+
+
+    total_favourites = sum(
+        int(
+            row[
+                "favourite_count"
+            ]
+        )
+        for row
+        in favourite_rows
+    )
+
+
+    return {
+        "gallery_id":
+            str(gallery.id),
+
+        "total_favourites":
+            total_favourites,
+
+        "favourited_photos":
+            len(
+                favourite_rows
+            ),
+
+        "unique_visitors":
+            int(
+                unique_visitors or 0
+            ),
+
+        "photos": [
+            {
+                "photo_id":
+                    str(
+                        row[
+                            "photo_id"
+                        ]
+                    ),
+
+                "favourite_count":
+                    int(
+                        row[
+                            "favourite_count"
+                        ]
+                    ),
+            }
+            for row
+            in favourite_rows
+        ],
     }
