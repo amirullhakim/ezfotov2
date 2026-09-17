@@ -90,7 +90,7 @@ class ClientGallery(TimestampMixin, Base):
     )
 
     # Used for PRIVATE galleries.
-    # We will store only a hash of the secret share token.
+    # Only the hash of the secret link token is stored.
     access_token_hash: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
@@ -116,6 +116,22 @@ class ClientGallery(TimestampMixin, Base):
     )
 
     expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+    # --------------------------------------------------
+    # TRASH / RECOVERY
+    # --------------------------------------------------
+    #
+    # null = normal gallery
+    # timestamp = gallery is in Trash
+    #
+    # The actual R2 objects are NOT deleted until
+    # permanent deletion.
+    #
+    deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         index=True,

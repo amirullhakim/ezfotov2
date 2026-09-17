@@ -132,6 +132,10 @@ def get_public_gallery(
             ClientGallery.is_published.is_(
                 True
             ),
+
+            ClientGallery.deleted_at.is_(
+                None
+            ),
         )
     )
 

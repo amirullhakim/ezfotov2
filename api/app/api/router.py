@@ -19,6 +19,9 @@ from app.api.routes.public_website import (
 from app.api.routes.uploads import router as uploads_router
 from app.api.routes.website import router as website_router
 from app.api.routes.workspaces import router as workspaces_router
+from app.api.routes.gallery_trash import (
+    router as gallery_trash_router,
+)
 
 
 api_router = APIRouter()
@@ -66,4 +69,8 @@ api_router.include_router(
 
 api_router.include_router(
     public_galleries_router
+)
+
+api_router.include_router(
+    gallery_trash_router
 )

@@ -1,7 +1,7 @@
 import re
 import unicodedata
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import (
     APIRouter,
@@ -30,10 +30,6 @@ from app.services.gallery_security import (
     generate_private_gallery_token,
     hash_gallery_password,
     hash_private_gallery_token,
-)
-from app.services.private_storage import (
-    PrivateStorageError,
-    delete_private_object,
 )
 from app.services.service_access import (
     require_workspace_service,
@@ -147,8 +143,15 @@ def get_workspace_gallery(
         select(ClientGallery).where(
             ClientGallery.id
             == parsed_id,
+
             ClientGallery.workspace_id
             == workspace_id,
+
+            # Normal gallery routes must not
+            # return galleries that are in Trash.
+            ClientGallery.deleted_at.is_(
+                None
+            ),
         )
     )
 
@@ -167,11 +170,20 @@ def ensure_slug_available(
     slug: str,
     exclude_gallery_id: uuid.UUID | None = None,
 ) -> None:
+    # IMPORTANT:
+    #
+    # Trashed galleries are intentionally included
+    # in this check.
+    #
+    # Their slug stays reserved during the recovery
+    # period so the gallery can be restored without
+    # another gallery taking its URL.
     query = select(
         ClientGallery
     ).where(
         ClientGallery.workspace_id
         == workspace_id,
+
         ClientGallery.slug
         == slug,
     )
@@ -224,6 +236,7 @@ def get_photo_count(
         ).where(
             GalleryPhoto.gallery_id
             == gallery_id,
+
             GalleryPhoto.status
             == "ACTIVE",
         )
@@ -243,44 +256,61 @@ def gallery_response(
         "id": str(
             gallery.id
         ),
+
         "workspace_id": str(
             gallery.workspace_id
         ),
+
         "title":
             gallery.title,
+
         "slug":
             gallery.slug,
+
         "client_name":
             gallery.client_name,
+
         "description":
             gallery.description,
+
         "shoot_date":
             gallery.shoot_date,
+
         "privacy_mode":
             gallery.privacy_mode,
+
         "password_configured":
             gallery.password_hash
             is not None,
+
         "private_link_configured":
             gallery.access_token_hash
             is not None,
+
         "allow_downloads":
             gallery.allow_downloads,
+
         "allow_favourites":
             gallery.allow_favourites,
+
         "is_published":
             gallery.is_published,
+
         "expires_at":
             gallery.expires_at,
+
         "photo_count":
             get_photo_count(
                 db,
                 gallery.id,
             ),
+
         "share_token":
             share_token,
+
         "created_at":
             gallery.created_at,
+
         "updated_at":
             gallery.updated_at,
     }
@@ -311,7 +341,13 @@ def list_galleries(
         select(ClientGallery)
         .where(
             ClientGallery.workspace_id
-            == workspace.id
+            == workspace.id,
+
+            # Galleries in Trash do not appear
+            # in the normal Gallery Manager.
+            ClientGallery.deleted_at.is_(
+                None
+            ),
         )
         .order_by(
             ClientGallery.created_at.desc()
@@ -379,6 +415,10 @@ def create_gallery(
     share_token = None
 
 
+    # --------------------------------------------------
+    # PASSWORD GALLERY
+    # --------------------------------------------------
+
     if (
         payload.privacy_mode
         == "PASSWORD"
@@ -399,6 +439,10 @@ def create_gallery(
         )
 
 
+    # --------------------------------------------------
+    # PRIVATE GALLERY
+    # --------------------------------------------------
+
     elif (
         payload.privacy_mode
         == "PRIVATE"
@@ -417,33 +461,48 @@ def create_gallery(
     gallery = ClientGallery(
         workspace_id=
             workspace.id,
+
         title=
             payload.title.strip(),
+
         slug=
             slug,
+
         client_name=(
             payload.client_name.strip()
             if payload.client_name
             else None
         ),
+
         description=
             payload.description,
+
         shoot_date=
             payload.shoot_date,
+
         privacy_mode=
             payload.privacy_mode,
+
         password_hash=
             password_hash,
+
         access_token_hash=
             access_token_hash,
+
         allow_downloads=
             payload.allow_downloads,
+
         allow_favourites=
             payload.allow_favourites,
+
         is_published=
             payload.is_published,
+
         expires_at=
             payload.expires_at,
+
+        deleted_at=
+            None,
     )
 
     db.add(
@@ -452,6 +511,7 @@ def create_gallery(
 
     try:
         db.commit()
+
         db.refresh(
             gallery
         )
@@ -502,8 +562,10 @@ def get_gallery(
     gallery = (
         get_workspace_gallery(
             db=db,
+
             workspace_id=
                 workspace.id,
+
             gallery_id=
                 gallery_id,
         )
@@ -543,8 +605,10 @@ def update_gallery(
     gallery = (
         get_workspace_gallery(
             db=db,
+
             workspace_id=
                 workspace.id,
+
             gallery_id=
                 gallery_id,
         )
@@ -562,7 +626,9 @@ def update_gallery(
     if "title" in values:
         if values["title"] is None:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=
+                    status.HTTP_400_BAD_REQUEST,
+
                 detail=(
                     "Gallery title cannot "
                     "be empty."
@@ -570,14 +636,18 @@ def update_gallery(
             )
 
         gallery.title = (
-            values["title"].strip()
+            values[
+                "title"
+            ].strip()
         )
 
 
     if "slug" in values:
         if not values["slug"]:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=
+                    status.HTTP_400_BAD_REQUEST,
+
                 detail=(
                     "Gallery address cannot "
                     "be empty."
@@ -586,16 +656,21 @@ def update_gallery(
 
         new_slug = (
             normalize_gallery_slug(
-                values["slug"]
+                values[
+                    "slug"
+                ]
             )
         )
 
         ensure_slug_available(
             db=db,
+
             workspace_id=
                 workspace.id,
+
             slug=
                 new_slug,
+
             exclude_gallery_id=
                 gallery.id,
         )
@@ -621,13 +696,17 @@ def update_gallery(
 
     if "description" in values:
         gallery.description = (
-            values["description"]
+            values[
+                "description"
+            ]
         )
 
 
     if "shoot_date" in values:
         gallery.shoot_date = (
-            values["shoot_date"]
+            values[
+                "shoot_date"
+            ]
         )
 
 
@@ -639,7 +718,9 @@ def update_gallery(
             is None
         ):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=
+                    status.HTTP_400_BAD_REQUEST,
+
                 detail=(
                     "allow_downloads "
                     "cannot be null."
@@ -661,7 +742,9 @@ def update_gallery(
             is None
         ):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=
+                    status.HTTP_400_BAD_REQUEST,
+
                 detail=(
                     "allow_favourites "
                     "cannot be null."
@@ -683,7 +766,9 @@ def update_gallery(
             is None
         ):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=
+                    status.HTTP_400_BAD_REQUEST,
+
                 detail=(
                     "is_published "
                     "cannot be null."
@@ -699,11 +784,15 @@ def update_gallery(
 
     if "expires_at" in values:
         validate_expiry(
-            values["expires_at"]
+            values[
+                "expires_at"
+            ]
         )
 
         gallery.expires_at = (
-            values["expires_at"]
+            values[
+                "expires_at"
+            ]
         )
 
 
@@ -734,6 +823,10 @@ def update_gallery(
     share_token = None
 
 
+    # --------------------------------------------------
+    # PASSWORD
+    # --------------------------------------------------
+
     if (
         requested_mode
         == "PASSWORD"
@@ -750,22 +843,32 @@ def update_gallery(
             is None
         ):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=
+                    status.HTTP_400_BAD_REQUEST,
+
                 detail=(
                     "A gallery password is required "
                     "for PASSWORD privacy."
                 ),
             )
 
+        # PASSWORD mode does not use
+        # a private secret-link token.
         gallery.access_token_hash = (
             None
         )
 
 
+    # --------------------------------------------------
+    # PRIVATE
+    # --------------------------------------------------
+
     elif (
         requested_mode
         == "PRIVATE"
     ):
+        # PRIVATE mode does not use
+        # a password.
         gallery.password_hash = (
             None
         )
@@ -773,8 +876,10 @@ def update_gallery(
         should_generate_token = (
             gallery.privacy_mode
             != "PRIVATE"
+
             or gallery.access_token_hash
             is None
+
             or regenerate_private_link
         )
 
@@ -790,8 +895,11 @@ def update_gallery(
             )
 
 
+    # --------------------------------------------------
+    # PUBLIC
+    # --------------------------------------------------
+
     else:
-        # PUBLIC
         gallery.password_hash = (
             None
         )
@@ -808,6 +916,7 @@ def update_gallery(
 
     try:
         db.commit()
+
         db.refresh(
             gallery
         )
@@ -816,7 +925,9 @@ def update_gallery(
         db.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
+            status_code=
+                status.HTTP_409_CONFLICT,
+
             detail=(
                 "Gallery could not be updated "
                 "because its address already exists."
@@ -827,12 +938,13 @@ def update_gallery(
     return gallery_response(
         db,
         gallery,
-        share_token=share_token,
+        share_token=
+            share_token,
     )
 
 
 # --------------------------------------------------
-# DELETE GALLERY
+# MOVE GALLERY TO TRASH
 # --------------------------------------------------
 
 
@@ -858,56 +970,55 @@ def delete_gallery(
     gallery = (
         get_workspace_gallery(
             db=db,
+
             workspace_id=
                 workspace.id,
+
             gallery_id=
                 gallery_id,
         )
     )
 
 
-    photos = db.scalars(
-        select(GalleryPhoto).where(
-            GalleryPhoto.gallery_id
-            == gallery.id,
-            GalleryPhoto.workspace_id
-            == workspace.id,
-            GalleryPhoto.status
-            != "DELETED",
-        )
-    ).all()
-
-
-    # Delete private R2 objects first.
+    # --------------------------------------------------
+    # SOFT DELETE
+    # --------------------------------------------------
     #
-    # If storage fails, keep the database rows
-    # so we can safely retry instead of creating
-    # forgotten private files.
-    try:
-        for photo in photos:
-            delete_private_object(
-                photo.object_key
-            )
-
-    except PrivateStorageError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "Gallery could not be deleted "
-                "because private storage cleanup failed."
-            ),
-        ) from exc
-
-
-    db.delete(
-        gallery
+    # We intentionally DO NOT:
+    #
+    # - delete the gallery row
+    # - delete GalleryPhoto rows
+    # - delete GalleryFavourite rows
+    # - delete R2 objects
+    #
+    # Everything remains available for recovery.
+    #
+    gallery.deleted_at = (
+        datetime.now(
+            timezone.utc
+        )
     )
+
 
     db.commit()
 
+    db.refresh(
+        gallery
+    )
+
 
     return {
-        "ok": True,
-        "deleted_photos":
-            len(photos),
+        "ok":
+            True,
+
+        "trashed":
+            True,
+
+        "gallery_id":
+            str(
+                gallery.id
+            ),
+
+        "deleted_at":
+            gallery.deleted_at,
     }
