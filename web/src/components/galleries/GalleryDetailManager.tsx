@@ -15,8 +15,10 @@ import {
   Link2,
   Loader2,
   LockKeyhole,
+  MoreHorizontal,
   RefreshCw,
   Save,
+  Star,
   Trash2,
   UploadCloud,
 } from "lucide-react"
@@ -120,9 +122,7 @@ type FavouriteSummary = {
   gallery_id: string
 
   total_favourites: number
-
   favourited_photos: number
-
   unique_visitors: number
 
   photos: {
@@ -226,6 +226,20 @@ export default function GalleryDetailManager({
     refreshingFavourites,
     setRefreshingFavourites,
   ] = useState(false)
+
+  const [
+    updatingPhotoId,
+    setUpdatingPhotoId,
+  ] = useState<string | null>(
+    null
+  )
+
+  const [
+    openPhotoMenuId,
+    setOpenPhotoMenuId,
+  ] = useState<string | null>(
+    null
+  )
 
   const [
     workspaceHostname,
@@ -438,6 +452,17 @@ export default function GalleryDetailManager({
     )
 
 
+  const hiddenPhotoCount =
+    useMemo(
+      () =>
+        photos.filter(
+          (photo) =>
+            !photo.is_visible
+        ).length,
+      [photos]
+    )
+
+
   const favouriteCountByPhoto =
     useMemo(() => {
       const counts =
@@ -500,6 +525,45 @@ export default function GalleryDetailManager({
   }
 
 
+  async function refreshPhotoData() {
+    const [
+      refreshedPhotos,
+      refreshedFavourites,
+    ] = await Promise.all([
+      apiFetch<PhotosResponse>(
+        `/api/galleries/${galleryId}/photos`
+      ),
+
+      apiFetch<FavouriteSummary>(
+        `/api/galleries/${galleryId}/favourites-summary`
+      ),
+    ])
+
+
+    setPhotos(
+      refreshedPhotos.photos
+    )
+
+    setFavouriteSummary(
+      refreshedFavourites
+    )
+
+
+    setGallery(
+      (current) =>
+        current
+          ? {
+              ...current,
+
+              photo_count:
+                refreshedPhotos
+                  .photos.length,
+            }
+          : current
+    )
+  }
+
+
   async function refreshFavouriteSummary(
     showMessage = true
   ) {
@@ -558,9 +622,11 @@ export default function GalleryDetailManager({
 
 
     try {
-      await navigator.clipboard.writeText(
-        value
-      )
+      await navigator
+        .clipboard
+        .writeText(
+          value
+        )
 
       setCopiedLink(
         true
@@ -861,6 +927,119 @@ export default function GalleryDetailManager({
   }
 
 
+  async function setPhotoAsCover(
+    photo: GalleryPhoto
+  ) {
+    if (
+      photo.is_cover ||
+      !photo.is_visible
+    ) {
+      return
+    }
+
+
+    setOpenPhotoMenuId(
+      null
+    )
+
+    setUpdatingPhotoId(
+      photo.id
+    )
+
+    clearMessages()
+
+
+    try {
+      await apiFetch<{
+        ok: boolean
+        photo_id: string
+        is_cover: boolean
+      }>(
+        `/api/galleries/${galleryId}/photos/${photo.id}/cover`,
+        {
+          method: "PATCH",
+        }
+      )
+
+
+      await refreshPhotoData()
+
+
+      setStatusMessage(
+        `${photo.filename} is now the gallery cover.`
+      )
+
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to change gallery cover."
+      )
+
+    } finally {
+      setUpdatingPhotoId(
+        null
+      )
+    }
+  }
+
+
+  async function togglePhotoVisibility(
+    photo: GalleryPhoto
+  ) {
+    const nextVisible =
+      !photo.is_visible
+
+
+    setOpenPhotoMenuId(
+      null
+    )
+
+    setUpdatingPhotoId(
+      photo.id
+    )
+
+    clearMessages()
+
+
+    try {
+      await apiFetch<{
+        ok: boolean
+        photo_id: string
+        is_visible: boolean
+        is_cover: boolean
+      }>(
+        `/api/galleries/${galleryId}/photos/${photo.id}/visibility?visible=${nextVisible}`,
+        {
+          method: "PATCH",
+        }
+      )
+
+
+      await refreshPhotoData()
+
+
+      setStatusMessage(
+        nextVisible
+          ? `${photo.filename} is now visible to clients.`
+          : `${photo.filename} is now hidden from clients.`
+      )
+
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to update photo visibility."
+      )
+
+    } finally {
+      setUpdatingPhotoId(
+        null
+      )
+    }
+  }
+
+
   async function handleFiles(
     event:
       ChangeEvent<HTMLInputElement>
@@ -910,28 +1089,7 @@ export default function GalleryDetailManager({
       }
 
 
-      const refreshed =
-        await apiFetch<PhotosResponse>(
-          `/api/galleries/${galleryId}/photos`
-        )
-
-
-      setPhotos(
-        refreshed.photos
-      )
-
-
-      setGallery(
-        (current) =>
-          current
-            ? {
-                ...current,
-
-                photo_count:
-                  refreshed.photos.length,
-              }
-            : current
-      )
+      await refreshPhotoData()
 
 
       setStatusMessage(
@@ -1087,6 +1245,10 @@ export default function GalleryDetailManager({
     }
 
 
+    setOpenPhotoMenuId(
+      null
+    )
+
     setDeletingPhotoId(
       photo.id
     )
@@ -1105,41 +1267,7 @@ export default function GalleryDetailManager({
       )
 
 
-      const [
-        refreshedPhotos,
-        refreshedFavourites,
-      ] = await Promise.all([
-        apiFetch<PhotosResponse>(
-          `/api/galleries/${galleryId}/photos`
-        ),
-
-        apiFetch<FavouriteSummary>(
-          `/api/galleries/${galleryId}/favourites-summary`
-        ),
-      ])
-
-
-      setPhotos(
-        refreshedPhotos.photos
-      )
-
-      setFavouriteSummary(
-        refreshedFavourites
-      )
-
-
-      setGallery(
-        (current) =>
-          current
-            ? {
-                ...current,
-
-                photo_count:
-                  refreshedPhotos
-                    .photos.length,
-              }
-            : current
-      )
+      await refreshPhotoData()
 
 
       setStatusMessage(
@@ -1226,6 +1354,20 @@ export default function GalleryDetailManager({
 
   return (
     <main className="min-h-screen bg-[#F5F8F9]">
+
+      {openPhotoMenuId && (
+        <button
+          type="button"
+          aria-label="Close photo actions"
+          onClick={() =>
+            setOpenPhotoMenuId(
+              null
+            )
+          }
+          className="fixed inset-0 z-40 cursor-default bg-transparent"
+        />
+      )}
+
 
       <header className="sticky top-0 z-30 border-b border-[#DFE8EA] bg-white/95 backdrop-blur">
 
@@ -1407,6 +1549,16 @@ export default function GalleryDetailManager({
                   .toString()
               }
             />
+
+            {hiddenPhotoCount > 0 && (
+              <MiniStat
+                label="Hidden"
+                value={
+                  hiddenPhotoCount
+                    .toString()
+                }
+              />
+            )}
 
             <MiniStat
               label="Storage"
@@ -1878,6 +2030,7 @@ export default function GalleryDetailManager({
 
 
               {gallery.allow_favourites && (
+
                 <div className="mt-6 flex flex-wrap items-center gap-2">
 
                   <button
@@ -1957,6 +2110,7 @@ export default function GalleryDetailManager({
                   )}
 
                 </div>
+
               )}
 
             </div>
@@ -2065,15 +2219,31 @@ export default function GalleryDetailManager({
                       ) ?? 0
 
 
+                    const isUpdating =
+                      updatingPhotoId ===
+                        photo.id ||
+                      deletingPhotoId ===
+                        photo.id
+
+
+                    const menuOpen =
+                      openPhotoMenuId ===
+                      photo.id
+
+
                     return (
                       <article
                         key={
                           photo.id
                         }
-                        className="group overflow-hidden rounded-2xl border border-[#E1E9EB] bg-[#F6F9FA]"
+                        className={`relative rounded-2xl border bg-[#F6F9FA] ${
+                          menuOpen
+                            ? "z-50 border-[#C7DADD]"
+                            : "z-0 border-[#E1E9EB]"
+                        }`}
                       >
 
-                        <div className="relative aspect-[4/3] overflow-hidden bg-[#EAF0F1]">
+                        <div className="relative aspect-[4/3] overflow-hidden rounded-t-2xl bg-[#EAF0F1]">
 
                           {photo.view_url ? (
 
@@ -2084,7 +2254,11 @@ export default function GalleryDetailManager({
                               alt={
                                 photo.filename
                               }
-                              className="h-full w-full object-cover"
+                              className={`h-full w-full object-cover transition ${
+                                photo.is_visible
+                                  ? ""
+                                  : "scale-[1.01] grayscale opacity-45"
+                              }`}
                             />
 
                           ) : (
@@ -2098,9 +2272,22 @@ export default function GalleryDetailManager({
                           )}
 
 
+                          {!photo.is_visible && (
+
+                            <div className="absolute inset-0 flex items-center justify-center bg-[#102D36]/15">
+
+                              <span className="rounded-full bg-[#173943]/90 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">
+                                Hidden
+                              </span>
+
+                            </div>
+
+                          )}
+
+
                           {photo.is_cover && (
 
-                            <span className="absolute left-3 top-3 rounded-full bg-[#073B4C]/90 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white">
+                            <span className="absolute left-3 top-3 rounded-full bg-[#073B4C]/95 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white shadow-sm">
                               Cover
                             </span>
 
@@ -2123,65 +2310,176 @@ export default function GalleryDetailManager({
                           )}
 
 
+                          {isUpdating && (
+
+                            <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/55 backdrop-blur-[1px]">
+
+                              <Loader2 className="h-6 w-6 animate-spin text-[#0A929F]" />
+
+                            </div>
+
+                          )}
+
+                        </div>
+
+
+                        <div className="flex items-center justify-between gap-3 p-3">
+
+                          <div className="min-w-0">
+
+                            <p className="truncate text-xs font-semibold text-[#36555E]">
+                              {photo.filename}
+                            </p>
+
+                            <div className="mt-1 flex items-center gap-2">
+
+                              <p className="text-[10px] text-[#889A9F]">
+                                {formatBytes(
+                                  photo.size_bytes
+                                )}
+                              </p>
+
+
+                              {!photo.is_visible && (
+
+                                <span className="text-[10px] font-semibold text-[#9A7A80]">
+                                  Hidden
+                                </span>
+
+                              )}
+
+                            </div>
+
+                          </div>
+
+
                           <button
                             type="button"
+                            aria-label={`Actions for ${photo.filename}`}
                             disabled={
-                              deletingPhotoId ===
-                              photo.id
+                              isUpdating
                             }
                             onClick={() =>
-                              deletePhoto(
-                                photo
+                              setOpenPhotoMenuId(
+                                (current) =>
+                                  current ===
+                                  photo.id
+                                    ? null
+                                    : photo.id
                               )
                             }
-                            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-xl bg-white/95 text-[#A44D57] opacity-0 shadow-sm transition group-hover:opacity-100 disabled:opacity-50"
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#DDE6E8] bg-white text-[#607A82] transition hover:bg-[#F4F8F9] disabled:opacity-40"
                           >
 
-                            {deletingPhotoId ===
-                            photo.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
+                            <MoreHorizontal className="h-4 w-4" />
 
                           </button>
 
                         </div>
 
 
-                        <div className="p-3">
+                        {menuOpen && (
 
-                          <p className="truncate text-xs font-semibold text-[#36555E]">
-                            {photo.filename}
-                          </p>
+                          <div className="absolute bottom-[54px] right-3 z-50 w-[205px] overflow-hidden rounded-2xl border border-[#DDE6E8] bg-white p-1.5 shadow-[0_18px_50px_rgba(16,52,62,0.16)]">
 
-                          <div className="mt-1 flex items-center justify-between gap-3">
+                            <button
+                              type="button"
+                              disabled={
+                                photo.is_cover ||
+                                !photo.is_visible
+                              }
+                              onClick={() =>
+                                setPhotoAsCover(
+                                  photo
+                                )
+                              }
+                              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#36555E] transition hover:bg-[#F4F8F9] disabled:cursor-not-allowed disabled:opacity-45"
+                            >
 
-                            <p className="text-[10px] text-[#889A9F]">
-                              {formatBytes(
-                                photo.size_bytes
+                              <Star
+                                className={`h-4 w-4 ${
+                                  photo.is_cover
+                                    ? "fill-[#0A929F] text-[#0A929F]"
+                                    : ""
+                                }`}
+                              />
+
+                              {photo.is_cover
+                                ? "Current cover"
+                                : "Set as cover"}
+
+                            </button>
+
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                togglePhotoVisibility(
+                                  photo
+                                )
+                              }
+                              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#36555E] transition hover:bg-[#F4F8F9]"
+                            >
+
+                              {photo.is_visible ? (
+                                <EyeOff className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
                               )}
-                            </p>
+
+                              {photo.is_visible
+                                ? "Hide from gallery"
+                                : "Show in gallery"}
+
+                            </button>
 
 
-                            {favouriteCount >
-                              0 && (
+                            <div className="my-1 border-t border-[#EDF1F2]" />
 
-                              <p className="text-[10px] font-semibold text-[#0A929F]">
-                                {
-                                  favouriteCount
-                                }{" "}
-                                {favouriteCount ===
-                                1
-                                  ? "favourite"
-                                  : "favourites"}
-                              </p>
 
-                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                deletePhoto(
+                                  photo
+                                )
+                              }
+                              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#A24D58] transition hover:bg-[#FFF5F6]"
+                            >
+
+                              <Trash2 className="h-4 w-4" />
+
+                              Delete photo
+
+                            </button>
 
                           </div>
 
-                        </div>
+                        )}
+
+
+                        {favouriteCount >
+                          0 && (
+
+                          <div className="border-t border-[#E7EDEF] px-3 py-2.5">
+
+                            <p className="flex items-center gap-1.5 text-[10px] font-semibold text-[#0A929F]">
+
+                              <Heart className="h-3 w-3 fill-current" />
+
+                              {
+                                favouriteCount
+                              }{" "}
+                              {favouriteCount ===
+                              1
+                                ? "favourite"
+                                : "favourites"}
+
+                            </p>
+
+                          </div>
+
+                        )}
 
                       </article>
                     )
