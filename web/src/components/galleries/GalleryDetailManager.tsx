@@ -339,6 +339,33 @@ export default function GalleryDetailManager({
   ] = useState(true)
 
 
+  // --------------------------------------------------
+  // NEW GALLERY SETTINGS
+  // --------------------------------------------------
+
+  const [
+    privacyMode,
+    setPrivacyMode,
+  ] = useState<PrivacyMode>(
+    "PRIVATE"
+  )
+
+  const [
+    privacyPassword,
+    setPrivacyPassword,
+  ] = useState("")
+
+  const [
+    expiryEnabled,
+    setExpiryEnabled,
+  ] = useState(false)
+
+  const [
+    expiryDate,
+    setExpiryDate,
+  ] = useState("")
+
+
   useEffect(() => {
     async function loadGallery() {
       try {
@@ -405,6 +432,32 @@ export default function GalleryDetailManager({
         setAllowFavourites(
           galleryResult.allow_favourites
         )
+
+
+        setPrivacyMode(
+          galleryResult.privacy_mode
+        )
+
+
+        if (
+          galleryResult.expires_at
+        ) {
+          setExpiryEnabled(
+            true
+          )
+
+          setExpiryDate(
+            formatDateInput(
+              galleryResult.expires_at
+            )
+          )
+        } else {
+          setExpiryEnabled(
+            false
+          )
+
+          setExpiryDate("")
+        }
 
 
         if (
@@ -564,9 +617,7 @@ export default function GalleryDetailManager({
   }
 
 
-  async function refreshFavouriteSummary(
-    showMessage = true
-  ) {
+  async function refreshFavouriteSummary() {
     setRefreshingFavourites(
       true
     )
@@ -583,27 +634,18 @@ export default function GalleryDetailManager({
         result
       )
 
+      setStatusMessage(
+        "Client selections refreshed."
+      )
 
-      if (
-        showMessage
-      ) {
-        setStatusMessage(
-          "Client selections refreshed."
-        )
-
-        setErrorMessage("")
-      }
+      setErrorMessage("")
 
     } catch (error) {
-      if (
-        showMessage
-      ) {
-        setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to refresh client selections."
-        )
-      }
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to refresh client selections."
+      )
 
     } finally {
       setRefreshingFavourites(
@@ -649,8 +691,54 @@ export default function GalleryDetailManager({
   }
 
 
+  function buildExpiryValue() {
+    if (
+      !expiryEnabled ||
+      !expiryDate
+    ) {
+      return null
+    }
+
+
+    const date =
+      new Date(
+        `${expiryDate}T23:59:59.999`
+      )
+
+
+    return date.toISOString()
+  }
+
+
   async function saveGallery() {
     if (!gallery) {
+      return
+    }
+
+
+    if (
+      privacyMode ===
+        "PASSWORD" &&
+      gallery.privacy_mode !==
+        "PASSWORD" &&
+      privacyPassword.length < 6
+    ) {
+      setErrorMessage(
+        "Enter a password with at least 6 characters before changing this gallery to password protected."
+      )
+
+      return
+    }
+
+
+    if (
+      expiryEnabled &&
+      !expiryDate
+    ) {
+      setErrorMessage(
+        "Choose an expiry date or turn expiry off."
+      )
+
       return
     }
 
@@ -663,37 +751,70 @@ export default function GalleryDetailManager({
 
 
     try {
+      const payload: {
+        title: string
+        client_name: string | null
+        description: string | null
+        shoot_date: string | null
+        allow_downloads: boolean
+        allow_favourites: boolean
+        privacy_mode: PrivacyMode
+        expires_at: string | null
+        password?: string
+      } = {
+        title:
+          title.trim(),
+
+        client_name:
+          clientName.trim()
+            ? clientName.trim()
+            : null,
+
+        description:
+          description.trim()
+            ? description.trim()
+            : null,
+
+        shoot_date:
+          shootDate ||
+          null,
+
+        allow_downloads:
+          allowDownloads,
+
+        allow_favourites:
+          allowFavourites,
+
+        privacy_mode:
+          privacyMode,
+
+        expires_at:
+          buildExpiryValue(),
+      }
+
+
+      if (
+        privacyMode ===
+          "PASSWORD" &&
+        gallery.privacy_mode !==
+          "PASSWORD"
+      ) {
+        payload.password =
+          privacyPassword
+      }
+
+
       const updated =
         await apiFetch<Gallery>(
           `/api/galleries/${gallery.id}`,
           {
-            method: "PATCH",
+            method:
+              "PATCH",
 
             body:
-              JSON.stringify({
-                title:
-                  title.trim(),
-
-                client_name:
-                  clientName.trim()
-                    ? clientName.trim()
-                    : null,
-
-                description:
-                  description.trim()
-                    ? description.trim()
-                    : null,
-
-                shoot_date:
-                  shootDate ||
-                  null,
-
-                allow_downloads:
-                  allowDownloads,
-
-                allow_favourites:
-                  allowFavourites,
-              }),
+              JSON.stringify(
+                payload
+              ),
           }
         )
 
@@ -702,9 +823,47 @@ export default function GalleryDetailManager({
         updated
       )
 
-      setStatusMessage(
-        "Gallery saved."
+      setPrivacyMode(
+        updated.privacy_mode
       )
+
+      setPrivacyPassword("")
+
+
+      if (
+        updated.privacy_mode ===
+          "PRIVATE" &&
+        updated.share_token &&
+        workspaceHostname
+      ) {
+        const link =
+          `https://${workspaceHostname}` +
+          `/gallery/${updated.slug}` +
+          `?t=${encodeURIComponent(
+            updated.share_token
+          )}`
+
+
+        setPrivateLink(
+          link
+        )
+
+        setStatusMessage(
+          "Gallery saved. A new private link was generated."
+        )
+      } else {
+        if (
+          updated.privacy_mode !==
+          "PRIVATE"
+        ) {
+          setPrivateLink("")
+        }
+
+
+        setStatusMessage(
+          "Gallery saved."
+        )
+      }
 
     } catch (error) {
       setErrorMessage(
@@ -743,7 +902,8 @@ export default function GalleryDetailManager({
         await apiFetch<Gallery>(
           `/api/galleries/${gallery.id}`,
           {
-            method: "PATCH",
+            method:
+              "PATCH",
 
             body:
               JSON.stringify({
@@ -796,7 +956,9 @@ export default function GalleryDetailManager({
     clearMessages()
 
     setPrivateLink("")
-    setCopiedLink(false)
+    setCopiedLink(
+      false
+    )
 
 
     try {
@@ -804,7 +966,8 @@ export default function GalleryDetailManager({
         await apiFetch<Gallery>(
           `/api/galleries/${gallery.id}`,
           {
-            method: "PATCH",
+            method:
+              "PATCH",
 
             body:
               JSON.stringify({
@@ -867,7 +1030,8 @@ export default function GalleryDetailManager({
 
 
     if (
-      newPassword.length < 6
+      newPassword.length <
+      6
     ) {
       setErrorMessage(
         "New gallery password must contain at least 6 characters."
@@ -889,7 +1053,8 @@ export default function GalleryDetailManager({
         await apiFetch<Gallery>(
           `/api/galleries/${gallery.id}`,
           {
-            method: "PATCH",
+            method:
+              "PATCH",
 
             body:
               JSON.stringify({
@@ -904,9 +1069,7 @@ export default function GalleryDetailManager({
         updated
       )
 
-      setNewPassword(
-        ""
-      )
+      setNewPassword("")
 
       setStatusMessage(
         "Gallery password changed successfully."
@@ -950,14 +1113,11 @@ export default function GalleryDetailManager({
 
 
     try {
-      await apiFetch<{
-        ok: boolean
-        photo_id: string
-        is_cover: boolean
-      }>(
+      await apiFetch(
         `/api/galleries/${galleryId}/photos/${photo.id}/cover`,
         {
-          method: "PATCH",
+          method:
+            "PATCH",
         }
       )
 
@@ -1003,15 +1163,11 @@ export default function GalleryDetailManager({
 
 
     try {
-      await apiFetch<{
-        ok: boolean
-        photo_id: string
-        is_visible: boolean
-        is_cover: boolean
-      }>(
+      await apiFetch(
         `/api/galleries/${galleryId}/photos/${photo.id}/visibility?visible=${nextVisible}`,
         {
-          method: "PATCH",
+          method:
+            "PATCH",
         }
       )
 
@@ -1052,7 +1208,8 @@ export default function GalleryDetailManager({
 
 
     if (
-      selectedFiles.length === 0
+      selectedFiles.length ===
+      0
     ) {
       return
     }
@@ -1073,9 +1230,7 @@ export default function GalleryDetailManager({
         index += 1
       ) {
         const file =
-          selectedFiles[
-            index
-          ]
+          selectedFiles[index]
 
 
         setUploadProgress(
@@ -1112,9 +1267,7 @@ export default function GalleryDetailManager({
         false
       )
 
-      setUploadProgress(
-        ""
-      )
+      setUploadProgress("")
 
 
       if (
@@ -1155,7 +1308,8 @@ export default function GalleryDetailManager({
       await apiFetch<PresignResponse>(
         `/api/galleries/${galleryId}/uploads/presign`,
         {
-          method: "POST",
+          method:
+            "POST",
 
           body:
             JSON.stringify({
@@ -1204,10 +1358,11 @@ export default function GalleryDetailManager({
       )
 
 
-    await apiFetch<GalleryPhoto>(
+    await apiFetch(
       `/api/galleries/${galleryId}/uploads/complete`,
       {
-        method: "POST",
+        method:
+          "POST",
 
         body:
           JSON.stringify({
@@ -1257,12 +1412,11 @@ export default function GalleryDetailManager({
 
 
     try {
-      await apiFetch<{
-        ok: boolean
-      }>(
+      await apiFetch(
         `/api/galleries/${galleryId}/photos/${photo.id}`,
         {
-          method: "DELETE",
+          method:
+            "DELETE",
         }
       )
 
@@ -1292,15 +1446,10 @@ export default function GalleryDetailManager({
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F6F9FA]">
-
         <div className="flex items-center gap-3 text-sm font-semibold text-[#58717A]">
-
           <Loader2 className="h-5 w-5 animate-spin text-[#0BA5B4]" />
-
           Loading gallery...
-
         </div>
-
       </div>
     )
   }
@@ -1309,9 +1458,7 @@ export default function GalleryDetailManager({
   if (!gallery) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#F6F9FA]">
-
         <div className="text-center">
-
           <Images className="mx-auto h-8 w-8 text-[#9AADB3]" />
 
           <h1 className="mt-4 text-xl font-semibold text-[#173943]">
@@ -1322,7 +1469,6 @@ export default function GalleryDetailManager({
             {errorMessage ||
               "This gallery could not be loaded."}
           </p>
-
 
           <button
             type="button"
@@ -1335,9 +1481,7 @@ export default function GalleryDetailManager({
           >
             Back to galleries
           </button>
-
         </div>
-
       </main>
     )
   }
@@ -1345,7 +1489,7 @@ export default function GalleryDetailManager({
 
   const privacy =
     getPrivacyPresentation(
-      gallery.privacy_mode
+      privacyMode
     )
 
   const PrivacyIcon =
@@ -1384,29 +1528,22 @@ export default function GalleryDetailManager({
               }
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#E1EAEC] bg-white text-[#58717A] transition hover:bg-[#F4F8F9]"
             >
-
               <ArrowLeft className="h-4 w-4" />
-
             </button>
 
 
             <div className="min-w-0">
-
               <div className="flex items-center gap-2">
-
                 <Images className="h-4 w-4 text-[#0A99A7]" />
 
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#0A8D99]">
                   Client Gallery
                 </p>
-
               </div>
-
 
               <h1 className="mt-1 truncate text-lg font-semibold tracking-[-0.025em] text-[#183A44]">
                 {gallery.title}
               </h1>
-
             </div>
 
           </div>
@@ -1424,7 +1561,6 @@ export default function GalleryDetailManager({
               }
               className="hidden h-10 items-center gap-2 rounded-xl border border-[#DCE7E9] bg-white px-4 text-sm font-semibold text-[#36545D] transition hover:bg-[#F7FAFB] disabled:opacity-60 sm:flex"
             >
-
               {saving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -1432,7 +1568,6 @@ export default function GalleryDetailManager({
               )}
 
               Save
-
             </button>
 
 
@@ -1450,7 +1585,6 @@ export default function GalleryDetailManager({
                   : "bg-[#073B4C] text-white hover:bg-[#0B5363]"
               }`}
             >
-
               {gallery.is_published ? (
                 <Eye className="h-4 w-4" />
               ) : (
@@ -1460,7 +1594,6 @@ export default function GalleryDetailManager({
               {gallery.is_published
                 ? "Published"
                 : "Publish"}
-
             </button>
 
           </div>
@@ -1492,7 +1625,6 @@ export default function GalleryDetailManager({
         <div className="flex flex-col justify-between gap-6 xl:flex-row xl:items-end">
 
           <div>
-
             <div className="flex flex-wrap items-center gap-2">
 
               <span className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#607880] shadow-sm">
@@ -1523,12 +1655,10 @@ export default function GalleryDetailManager({
               {gallery.title}
             </h2>
 
-
             <p className="mt-2 text-sm text-[#73888F]">
               {gallery.client_name ||
                 "No client name"}
             </p>
-
           </div>
 
 
@@ -1554,8 +1684,7 @@ export default function GalleryDetailManager({
               <MiniStat
                 label="Hidden"
                 value={
-                  hiddenPhotoCount
-                    .toString()
+                  hiddenPhotoCount.toString()
                 }
               />
             )}
@@ -1574,10 +1703,11 @@ export default function GalleryDetailManager({
         </div>
 
 
-        <div className="mt-8 grid gap-6 xl:grid-cols-[370px_1fr]">
+        <div className="mt-8 grid gap-6 xl:grid-cols-[390px_1fr]">
 
           <aside className="space-y-6">
 
+            {/* DETAILS */}
             <section className="rounded-[24px] border border-[#DFE8EA] bg-white p-6">
 
               <SectionHeader
@@ -1611,14 +1741,11 @@ export default function GalleryDetailManager({
 
 
                 <div>
-
                   <label className="mb-2 block text-sm font-semibold text-[#36535C]">
                     Shoot date
                   </label>
 
-
                   <div className="relative">
-
                     <CalendarDays className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#82959B]" />
 
                     <input
@@ -1633,14 +1760,11 @@ export default function GalleryDetailManager({
                       }
                       className="h-12 w-full rounded-xl border border-[#DCE6E8] bg-white pl-11 pr-4 text-sm text-[#203F48] outline-none transition focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
                     />
-
                   </div>
-
                 </div>
 
 
                 <div>
-
                   <label className="mb-2 block text-sm font-semibold text-[#36535C]">
                     Description
                   </label>
@@ -1658,7 +1782,6 @@ export default function GalleryDetailManager({
                     }
                     className="w-full resize-none rounded-xl border border-[#DCE6E8] bg-white px-4 py-3 text-sm leading-6 text-[#203F48] outline-none transition placeholder:text-[#A4B2B7] focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
                   />
-
                 </div>
 
 
@@ -1672,7 +1795,6 @@ export default function GalleryDetailManager({
                   }
                   className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:opacity-60"
                 >
-
                   {saving ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
@@ -1680,7 +1802,6 @@ export default function GalleryDetailManager({
                   )}
 
                   Save changes
-
                 </button>
 
               </div>
@@ -1688,6 +1809,7 @@ export default function GalleryDetailManager({
             </section>
 
 
+            {/* ACCESS */}
             <section className="rounded-[24px] border border-[#DFE8EA] bg-white p-6">
 
               <SectionHeader
@@ -1696,41 +1818,122 @@ export default function GalleryDetailManager({
               />
 
 
-              <div className="mt-5 rounded-2xl border border-[#E3EBED] bg-[#F7FAFB] p-4">
+              {/* PRIVACY MODE */}
+              <div className="mt-6">
 
-                <div className="flex items-start gap-3">
-
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#E4ECEE] bg-white">
-
-                    <PrivacyIcon className="h-4 w-4 text-[#0A929F]" />
-
-                  </div>
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#84969D]">
+                  Privacy
+                </p>
 
 
-                  <div className="min-w-0">
+                <div className="mt-3 space-y-2">
 
-                    <p className="text-sm font-semibold text-[#294A53]">
-                      {privacy.label}
-                    </p>
+                  <PrivacyOption
+                    mode="PUBLIC"
+                    selected={
+                      privacyMode ===
+                      "PUBLIC"
+                    }
+                    icon={
+                      Eye
+                    }
+                    title="Public gallery"
+                    description="Anyone with the gallery link can view it."
+                    onSelect={() => {
+                      setPrivacyMode(
+                        "PUBLIC"
+                      )
 
-                    <p className="mt-1 text-xs leading-5 text-[#7B8F96]">
-                      {getPrivacyDescription(
-                        gallery.privacy_mode
-                      )}
-                    </p>
+                      setPrivacyPassword(
+                        ""
+                      )
+                    }}
+                  />
 
-                  </div>
+
+                  <PrivacyOption
+                    mode="PRIVATE"
+                    selected={
+                      privacyMode ===
+                      "PRIVATE"
+                    }
+                    icon={
+                      Link2
+                    }
+                    title="Private link"
+                    description="Only people with the secret link can access it."
+                    onSelect={() => {
+                      setPrivacyMode(
+                        "PRIVATE"
+                      )
+
+                      setPrivacyPassword(
+                        ""
+                      )
+                    }}
+                  />
+
+
+                  <PrivacyOption
+                    mode="PASSWORD"
+                    selected={
+                      privacyMode ===
+                      "PASSWORD"
+                    }
+                    icon={
+                      LockKeyhole
+                    }
+                    title="Password protected"
+                    description="Visitors must enter a password before viewing."
+                    onSelect={() =>
+                      setPrivacyMode(
+                        "PASSWORD"
+                      )
+                    }
+                  />
 
                 </div>
 
               </div>
 
 
-              {gallery.privacy_mode !==
+              {/* PASSWORD REQUIRED WHEN SWITCHING */}
+              {privacyMode ===
+                "PASSWORD" &&
+                gallery.privacy_mode !==
+                  "PASSWORD" && (
+
+                <div className="mt-5 rounded-2xl border border-[#DDE8EA] bg-[#F7FAFB] p-4">
+
+                  <label className="text-sm font-semibold text-[#36545D]">
+                    Gallery password
+                  </label>
+
+                  <input
+                    type="password"
+                    value={
+                      privacyPassword
+                    }
+                    placeholder="Minimum 6 characters"
+                    onChange={(event) =>
+                      setPrivacyPassword(
+                        event.target.value
+                      )
+                    }
+                    className="mt-3 h-11 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none transition focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
+                  />
+
+                </div>
+
+              )}
+
+
+              {/* SHARE LINK */}
+              {privacyMode !==
                 "PRIVATE" &&
                 normalGalleryLink && (
 
-                <div className="mt-5">
+                <div className="mt-6">
 
                   <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#84969D]">
                     Gallery link
@@ -1753,7 +1956,6 @@ export default function GalleryDetailManager({
                       }
                       className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E]"
                     >
-
                       {copiedLink ? (
                         <>
                           <Check className="h-3.5 w-3.5 text-[#188366]" />
@@ -1765,7 +1967,6 @@ export default function GalleryDetailManager({
                           Copy gallery link
                         </>
                       )}
-
                     </button>
 
                   </div>
@@ -1775,10 +1976,13 @@ export default function GalleryDetailManager({
               )}
 
 
-              {gallery.privacy_mode ===
-                "PRIVATE" && (
+              {/* PRIVATE LINK */}
+              {privacyMode ===
+                "PRIVATE" &&
+                gallery.privacy_mode ===
+                  "PRIVATE" && (
 
-                <div className="mt-5">
+                <div className="mt-6">
 
                   <button
                     type="button"
@@ -1790,48 +1994,27 @@ export default function GalleryDetailManager({
                     }
                     className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#D9E5E7] bg-white text-sm font-semibold text-[#375861] transition hover:bg-[#F5F9FA] disabled:opacity-60"
                   >
-
                     <RefreshCw className="h-4 w-4" />
 
-                    Generate private link
-
+                    Generate new private link
                   </button>
 
 
                   {privateLink && (
 
-                    <div className="mt-4 rounded-xl border border-[#DCE7E9] bg-[#F7FAFB] p-3">
-
-                      <p className="break-all text-xs font-semibold leading-5 text-[#405F68]">
-                        {privateLink}
-                      </p>
-
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          copyLink(
-                            privateLink
-                          )
-                        }
-                        className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E]"
-                      >
-
-                        {copiedLink ? (
-                          <>
-                            <Check className="h-3.5 w-3.5 text-[#188366]" />
-                            Copied
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="h-3.5 w-3.5" />
-                            Copy private link
-                          </>
-                        )}
-
-                      </button>
-
-                    </div>
+                    <PrivateLinkBox
+                      link={
+                        privateLink
+                      }
+                      copied={
+                        copiedLink
+                      }
+                      onCopy={() =>
+                        copyLink(
+                          privateLink
+                        )
+                      }
+                    />
 
                   )}
 
@@ -1840,19 +2023,42 @@ export default function GalleryDetailManager({
               )}
 
 
-              {gallery.privacy_mode ===
-                "PASSWORD" && (
+              {privacyMode ===
+                "PRIVATE" &&
+                gallery.privacy_mode !==
+                  "PRIVATE" && (
 
-                <div className="mt-5 border-t border-[#E9EFF0] pt-5">
+                <div className="mt-5 rounded-xl border border-[#D9E7EA] bg-[#F4FAFA] px-4 py-3 text-xs leading-5 text-[#59747C]">
+                  A new private link will be generated when you save.
+                </div>
+
+              )}
+
+
+              {/* PRIVATE LINK GENERATED AFTER SWITCH */}
+              {privacyMode ===
+                "PRIVATE" &&
+                privateLink &&
+                gallery.privacy_mode ===
+                  "PRIVATE" && (
+                  <></>
+              )}
+
+
+              {/* PASSWORD CHANGE */}
+              {gallery.privacy_mode ===
+                "PASSWORD" &&
+                privacyMode ===
+                  "PASSWORD" && (
+
+                <div className="mt-6 border-t border-[#E9EFF0] pt-5">
 
                   <div className="flex items-center gap-2">
-
                     <KeyRound className="h-4 w-4 text-[#0A929F]" />
 
                     <p className="text-sm font-semibold text-[#36545D]">
                       Change gallery password
                     </p>
-
                   </div>
 
 
@@ -1875,14 +2081,14 @@ export default function GalleryDetailManager({
                     type="button"
                     disabled={
                       changingPassword ||
-                      newPassword.length < 6
+                      newPassword.length <
+                        6
                     }
                     onClick={
                       changeGalleryPassword
                     }
                     className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#D9E5E7] bg-white text-sm font-semibold text-[#375861] disabled:opacity-50"
                   >
-
                     {changingPassword ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
@@ -1890,7 +2096,6 @@ export default function GalleryDetailManager({
                     )}
 
                     Change password
-
                   </button>
 
                 </div>
@@ -1898,7 +2103,88 @@ export default function GalleryDetailManager({
               )}
 
 
-              <div className="mt-5 border-t border-[#E9EFF0] pt-5">
+              {/* EXPIRY */}
+              <div className="mt-6 border-t border-[#E9EFF0] pt-5">
+
+                <div className="flex items-center justify-between gap-4">
+
+                  <div className="flex items-center gap-3">
+
+                    <CalendarDays className="h-4 w-4 text-[#648088]" />
+
+                    <div>
+                      <p className="text-sm font-semibold text-[#36545D]">
+                        Expiry date
+                      </p>
+
+                      <p className="mt-0.5 text-xs text-[#82969D]">
+                        Automatically close access after a date.
+                      </p>
+                    </div>
+
+                  </div>
+
+
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={
+                      expiryEnabled
+                    }
+                    onClick={() => {
+                      const next =
+                        !expiryEnabled
+
+                      setExpiryEnabled(
+                        next
+                      )
+
+                      if (!next) {
+                        setExpiryDate(
+                          ""
+                        )
+                      }
+                    }}
+                    className={`relative h-7 w-12 shrink-0 rounded-full transition ${
+                      expiryEnabled
+                        ? "bg-[#0AA4B1]"
+                        : "bg-[#D5DEE0]"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition ${
+                        expiryEnabled
+                          ? "left-6"
+                          : "left-1"
+                      }`}
+                    />
+                  </button>
+
+                </div>
+
+
+                {expiryEnabled && (
+
+                  <input
+                    type="date"
+                    value={
+                      expiryDate
+                    }
+                    onChange={(event) =>
+                      setExpiryDate(
+                        event.target.value
+                      )
+                    }
+                    className="mt-4 h-11 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none transition focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
+                  />
+
+                )}
+
+              </div>
+
+
+              {/* PERMISSIONS */}
+              <div className="mt-6 border-t border-[#E9EFF0] pt-5">
 
                 <div className="space-y-3">
 
@@ -1933,11 +2219,32 @@ export default function GalleryDetailManager({
 
               </div>
 
+
+              <button
+                type="button"
+                onClick={
+                  saveGallery
+                }
+                disabled={
+                  saving
+                }
+                className="mt-6 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:opacity-60"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+
+                Save access settings
+              </button>
+
             </section>
 
           </aside>
 
 
+          {/* PHOTOS */}
           <section className="rounded-[26px] border border-[#DFE8EA] bg-white">
 
             <div className="border-b border-[#E9EFF0] p-6">
@@ -1945,7 +2252,6 @@ export default function GalleryDetailManager({
               <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
 
                 <div>
-
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#0A929F]">
                     Photographs
                   </p>
@@ -1957,7 +2263,6 @@ export default function GalleryDetailManager({
                   <p className="mt-1 text-sm text-[#7A8E95]">
                     Upload and manage photographs for this gallery.
                   </p>
-
                 </div>
 
 
@@ -1965,15 +2270,14 @@ export default function GalleryDetailManager({
 
                   <button
                     type="button"
-                    onClick={() =>
-                      refreshFavouriteSummary()
+                    onClick={
+                      refreshFavouriteSummary
                     }
                     disabled={
                       refreshingFavourites
                     }
                     className="flex h-11 items-center gap-2 rounded-xl border border-[#DCE7E9] bg-white px-4 text-sm font-semibold text-[#49656D] transition hover:bg-[#F6F9FA] disabled:opacity-50"
                   >
-
                     <RefreshCw
                       className={`h-4 w-4 ${
                         refreshingFavourites
@@ -1983,7 +2287,6 @@ export default function GalleryDetailManager({
                     />
 
                     Selections
-
                   </button>
 
 
@@ -2011,7 +2314,6 @@ export default function GalleryDetailManager({
                     }
                     className="flex h-11 items-center gap-2 rounded-xl bg-[#073B4C] px-5 text-sm font-semibold text-white disabled:opacity-60"
                   >
-
                     {uploading ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
@@ -2021,7 +2323,6 @@ export default function GalleryDetailManager({
                     {uploading
                       ? "Uploading..."
                       : "Upload photos"}
-
                   </button>
 
                 </div>
@@ -2044,7 +2345,7 @@ export default function GalleryDetailManager({
                       photoFilter ===
                       "ALL"
                         ? "bg-[#073B4C] text-white"
-                        : "bg-[#F2F6F7] text-[#617A82] hover:bg-[#EAF1F2]"
+                        : "bg-[#F2F6F7] text-[#617A82]"
                     }`}
                   >
                     All photos{" "}
@@ -2065,10 +2366,9 @@ export default function GalleryDetailManager({
                       photoFilter ===
                       "FAVOURITED"
                         ? "bg-[#073B4C] text-white"
-                        : "bg-[#F2F6F7] text-[#617A82] hover:bg-[#EAF1F2]"
+                        : "bg-[#F2F6F7] text-[#617A82]"
                     }`}
                   >
-
                     <Heart
                       className={`h-4 w-4 ${
                         photoFilter ===
@@ -2086,7 +2386,6 @@ export default function GalleryDetailManager({
                           .favourited_photos
                       }
                     </span>
-
                   </button>
 
 
@@ -2120,15 +2419,10 @@ export default function GalleryDetailManager({
               uploadProgress && (
 
               <div className="border-b border-[#E9EFF0] bg-[#F5FAFA] px-6 py-4">
-
                 <div className="flex items-center gap-3 text-sm font-semibold text-[#477079]">
-
                   <Loader2 className="h-4 w-4 animate-spin text-[#0A9EAB]" />
-
                   {uploadProgress}
-
                 </div>
-
               </div>
 
             )}
@@ -2136,40 +2430,11 @@ export default function GalleryDetailManager({
 
             {photos.length === 0 ? (
 
-              <div className="flex min-h-[480px] flex-col items-center justify-center px-6 text-center">
-
-                <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[#EAF8F9]">
-
-                  <ImagePlus className="h-7 w-7 text-[#0A9EAB]" />
-
-                </div>
-
-
-                <h4 className="mt-6 text-xl font-semibold text-[#173943]">
-                  No photographs yet
-                </h4>
-
-
-                <p className="mt-2 max-w-md text-sm leading-6 text-[#778C93]">
-                  Upload your first photographs. The first image automatically becomes the gallery cover.
-                </p>
-
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    fileInputRef.current?.click()
-                  }
-                  className="mt-6 flex h-11 items-center gap-2 rounded-xl bg-[#073B4C] px-5 text-sm font-semibold text-white"
-                >
-
-                  <UploadCloud className="h-4 w-4" />
-
-                  Upload photographs
-
-                </button>
-
-              </div>
+              <EmptyPhotos
+                onUpload={() =>
+                  fileInputRef.current?.click()
+                }
+              />
 
             ) : displayedPhotos.length ===
               0 ? (
@@ -2177,21 +2442,16 @@ export default function GalleryDetailManager({
               <div className="flex min-h-[420px] flex-col items-center justify-center px-6 text-center">
 
                 <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[#F2F6F7]">
-
                   <Heart className="h-7 w-7 text-[#82969C]" />
-
                 </div>
-
 
                 <h4 className="mt-6 text-xl font-semibold text-[#173943]">
                   No favourited photos yet
                 </h4>
 
-
-                <p className="mt-2 max-w-md text-sm leading-6 text-[#778C93]">
+                <p className="mt-2 text-sm text-[#778C93]">
                   Client-selected photographs will appear here.
                 </p>
-
 
                 <button
                   type="button"
@@ -2246,7 +2506,6 @@ export default function GalleryDetailManager({
                         <div className="relative aspect-[4/3] overflow-hidden rounded-t-2xl bg-[#EAF0F1]">
 
                           {photo.view_url ? (
-
                             <img
                               src={
                                 photo.view_url
@@ -2260,37 +2519,28 @@ export default function GalleryDetailManager({
                                   : "scale-[1.01] grayscale opacity-45"
                               }`}
                             />
-
                           ) : (
-
                             <div className="flex h-full items-center justify-center">
-
                               <Images className="h-7 w-7 text-[#9DB0B6]" />
-
                             </div>
-
                           )}
 
 
                           {!photo.is_visible && (
-
                             <div className="absolute inset-0 flex items-center justify-center bg-[#102D36]/15">
 
-                              <span className="rounded-full bg-[#173943]/90 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">
+                              <span className="rounded-full bg-[#173943]/90 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white">
                                 Hidden
                               </span>
 
                             </div>
-
                           )}
 
 
                           {photo.is_cover && (
-
-                            <span className="absolute left-3 top-3 rounded-full bg-[#073B4C]/95 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white shadow-sm">
+                            <span className="absolute left-3 top-3 rounded-full bg-[#073B4C]/95 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white">
                               Cover
                             </span>
-
                           )}
 
 
@@ -2311,13 +2561,11 @@ export default function GalleryDetailManager({
 
 
                           {isUpdating && (
-
-                            <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/55 backdrop-blur-[1px]">
+                            <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/55">
 
                               <Loader2 className="h-6 w-6 animate-spin text-[#0A929F]" />
 
                             </div>
-
                           )}
 
                         </div>
@@ -2331,31 +2579,17 @@ export default function GalleryDetailManager({
                               {photo.filename}
                             </p>
 
-                            <div className="mt-1 flex items-center gap-2">
-
-                              <p className="text-[10px] text-[#889A9F]">
-                                {formatBytes(
-                                  photo.size_bytes
-                                )}
-                              </p>
-
-
-                              {!photo.is_visible && (
-
-                                <span className="text-[10px] font-semibold text-[#9A7A80]">
-                                  Hidden
-                                </span>
-
+                            <p className="mt-1 text-[10px] text-[#889A9F]">
+                              {formatBytes(
+                                photo.size_bytes
                               )}
-
-                            </div>
+                            </p>
 
                           </div>
 
 
                           <button
                             type="button"
-                            aria-label={`Actions for ${photo.filename}`}
                             disabled={
                               isUpdating
                             }
@@ -2368,18 +2602,15 @@ export default function GalleryDetailManager({
                                     : photo.id
                               )
                             }
-                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#DDE6E8] bg-white text-[#607A82] transition hover:bg-[#F4F8F9] disabled:opacity-40"
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#DDE6E8] bg-white text-[#607A82]"
                           >
-
                             <MoreHorizontal className="h-4 w-4" />
-
                           </button>
 
                         </div>
 
 
                         {menuOpen && (
-
                           <div className="absolute bottom-[54px] right-3 z-50 w-[205px] overflow-hidden rounded-2xl border border-[#DDE6E8] bg-white p-1.5 shadow-[0_18px_50px_rgba(16,52,62,0.16)]">
 
                             <button
@@ -2393,9 +2624,8 @@ export default function GalleryDetailManager({
                                   photo
                                 )
                               }
-                              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#36555E] transition hover:bg-[#F4F8F9] disabled:cursor-not-allowed disabled:opacity-45"
+                              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#36555E] hover:bg-[#F4F8F9] disabled:opacity-45"
                             >
-
                               <Star
                                 className={`h-4 w-4 ${
                                   photo.is_cover
@@ -2407,7 +2637,6 @@ export default function GalleryDetailManager({
                               {photo.is_cover
                                 ? "Current cover"
                                 : "Set as cover"}
-
                             </button>
 
 
@@ -2418,9 +2647,8 @@ export default function GalleryDetailManager({
                                   photo
                                 )
                               }
-                              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#36555E] transition hover:bg-[#F4F8F9]"
+                              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#36555E] hover:bg-[#F4F8F9]"
                             >
-
                               {photo.is_visible ? (
                                 <EyeOff className="h-4 w-4" />
                               ) : (
@@ -2430,7 +2658,6 @@ export default function GalleryDetailManager({
                               {photo.is_visible
                                 ? "Hide from gallery"
                                 : "Show in gallery"}
-
                             </button>
 
 
@@ -2444,17 +2671,13 @@ export default function GalleryDetailManager({
                                   photo
                                 )
                               }
-                              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#A24D58] transition hover:bg-[#FFF5F6]"
+                              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-[#A24D58] hover:bg-[#FFF5F6]"
                             >
-
                               <Trash2 className="h-4 w-4" />
-
                               Delete photo
-
                             </button>
 
                           </div>
-
                         )}
 
 
@@ -2501,6 +2724,157 @@ export default function GalleryDetailManager({
 }
 
 
+function PrivacyOption({
+  selected,
+  icon: Icon,
+  title,
+  description,
+  onSelect,
+}: {
+  mode: PrivacyMode
+  selected: boolean
+  icon: typeof Eye
+  title: string
+  description: string
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={
+        onSelect
+      }
+      className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition ${
+        selected
+          ? "border-[#73D5DC] bg-[#F1FBFC] shadow-[0_0_0_3px_rgba(28,201,216,0.06)]"
+          : "border-[#E1E9EB] bg-white hover:bg-[#F8FAFB]"
+      }`}
+    >
+
+      <div
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+          selected
+            ? "bg-[#DFF7F8] text-[#0695A2]"
+            : "bg-[#F2F6F7] text-[#71878E]"
+        }`}
+      >
+        <Icon className="h-4 w-4" />
+      </div>
+
+
+      <div className="min-w-0 flex-1">
+
+        <div className="flex items-center justify-between gap-3">
+
+          <p className="text-sm font-semibold text-[#294A53]">
+            {title}
+          </p>
+
+
+          <div
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+              selected
+                ? "border-[#0AA4B1] bg-[#0AA4B1]"
+                : "border-[#C8D5D8] bg-white"
+            }`}
+          >
+            {selected && (
+              <Check className="h-3 w-3 text-white" />
+            )}
+          </div>
+
+        </div>
+
+
+        <p className="mt-1 text-xs leading-5 text-[#7B8F96]">
+          {description}
+        </p>
+
+      </div>
+
+    </button>
+  )
+}
+
+
+function PrivateLinkBox({
+  link,
+  copied,
+  onCopy,
+}: {
+  link: string
+  copied: boolean
+  onCopy: () => void
+}) {
+  return (
+    <div className="mt-4 rounded-xl border border-[#DCE7E9] bg-[#F7FAFB] p-3">
+
+      <p className="break-all text-xs font-semibold leading-5 text-[#405F68]">
+        {link}
+      </p>
+
+
+      <button
+        type="button"
+        onClick={
+          onCopy
+        }
+        className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E]"
+      >
+        {copied ? (
+          <>
+            <Check className="h-3.5 w-3.5 text-[#188366]" />
+            Copied
+          </>
+        ) : (
+          <>
+            <Copy className="h-3.5 w-3.5" />
+            Copy private link
+          </>
+        )}
+      </button>
+
+    </div>
+  )
+}
+
+
+function EmptyPhotos({
+  onUpload,
+}: {
+  onUpload: () => void
+}) {
+  return (
+    <div className="flex min-h-[480px] flex-col items-center justify-center px-6 text-center">
+
+      <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[#EAF8F9]">
+        <ImagePlus className="h-7 w-7 text-[#0A9EAB]" />
+      </div>
+
+      <h4 className="mt-6 text-xl font-semibold text-[#173943]">
+        No photographs yet
+      </h4>
+
+      <p className="mt-2 max-w-md text-sm leading-6 text-[#778C93]">
+        Upload your first photographs. The first image automatically becomes the gallery cover.
+      </p>
+
+      <button
+        type="button"
+        onClick={
+          onUpload
+        }
+        className="mt-6 flex h-11 items-center gap-2 rounded-xl bg-[#073B4C] px-5 text-sm font-semibold text-white"
+      >
+        <UploadCloud className="h-4 w-4" />
+        Upload photographs
+      </button>
+
+    </div>
+  )
+}
+
+
 function SectionHeader({
   eyebrow,
   title,
@@ -2510,7 +2884,6 @@ function SectionHeader({
 }) {
   return (
     <div>
-
       <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#0A929F]">
         {eyebrow}
       </p>
@@ -2518,7 +2891,6 @@ function SectionHeader({
       <h3 className="mt-2 text-lg font-semibold tracking-[-0.025em] text-[#173943]">
         {title}
       </h3>
-
     </div>
   )
 }
@@ -2537,7 +2909,6 @@ function Field({
 }) {
   return (
     <div>
-
       <label className="mb-2 block text-sm font-semibold text-[#36535C]">
         {label}
       </label>
@@ -2553,7 +2924,6 @@ function Field({
         }
         className="h-12 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none transition focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
       />
-
     </div>
   )
 }
@@ -2576,13 +2946,11 @@ function ToggleRow({
     <div className="flex items-center justify-between gap-4 rounded-xl border border-[#E3EAEC] p-3">
 
       <div className="flex items-center gap-3">
-
         <Icon className="h-4 w-4 text-[#648088]" />
 
         <p className="text-sm font-semibold text-[#36545D]">
           {title}
         </p>
-
       </div>
 
 
@@ -2603,7 +2971,6 @@ function ToggleRow({
             : "bg-[#D5DEE0]"
         }`}
       >
-
         <span
           className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition ${
             checked
@@ -2611,7 +2978,6 @@ function ToggleRow({
               : "left-1"
           }`}
         />
-
       </button>
 
     </div>
@@ -2642,33 +3008,6 @@ function MiniStat({
 }
 
 
-function getPrivacyDescription(
-  mode: PrivacyMode
-) {
-  if (
-    mode === "PUBLIC"
-  ) {
-    return (
-      "Anyone with the gallery link can view this gallery."
-    )
-  }
-
-
-  if (
-    mode === "PASSWORD"
-  ) {
-    return (
-      "Visitors must enter the gallery password before viewing."
-    )
-  }
-
-
-  return (
-    "Only people with the private share link can access this gallery."
-  )
-}
-
-
 function getPrivacyPresentation(
   mode: PrivacyMode
 ) {
@@ -2676,8 +3015,10 @@ function getPrivacyPresentation(
     mode === "PUBLIC"
   ) {
     return {
-      label: "Public gallery",
-      icon: Eye,
+      label:
+        "Public gallery",
+      icon:
+        Eye,
     }
   }
 
@@ -2686,16 +3027,58 @@ function getPrivacyPresentation(
     mode === "PASSWORD"
   ) {
     return {
-      label: "Password protected",
-      icon: LockKeyhole,
+      label:
+        "Password protected",
+      icon:
+        LockKeyhole,
     }
   }
 
 
   return {
-    label: "Private gallery",
-    icon: Link2,
+    label:
+      "Private gallery",
+    icon:
+      Link2,
   }
+}
+
+
+function formatDateInput(
+  value: string
+) {
+  const date =
+    new Date(
+      value
+    )
+
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return ""
+  }
+
+
+  const year =
+    date.getFullYear()
+
+  const month =
+    `${date.getMonth() + 1}`.padStart(
+      2,
+      "0"
+    )
+
+  const day =
+    `${date.getDate()}`.padStart(
+      2,
+      "0"
+    )
+
+
+  return `${year}-${month}-${day}`
 }
 
 
@@ -2777,8 +3160,11 @@ function getImageDimensions(
 
       image.onerror = () => {
         resolve({
-          width: null,
-          height: null,
+          width:
+            null,
+
+          height:
+            null,
         })
 
         URL.revokeObjectURL(
