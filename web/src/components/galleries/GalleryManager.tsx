@@ -79,6 +79,14 @@ type GalleriesResponse = {
 }
 
 
+type TrashResponse = {
+  retention_days: number
+  galleries: {
+    id: string
+  }[]
+}
+
+
 type WorkspaceResponse = {
   onboarded: boolean
 
@@ -134,6 +142,11 @@ export default function GalleryManager() {
     workspaceSlug,
     setWorkspaceSlug,
   ] = useState("")
+
+  const [
+    trashCount,
+    setTrashCount,
+  ] = useState(0)
 
   const [
     loading,
@@ -204,6 +217,21 @@ export default function GalleryManager() {
         setGalleries(
           galleryResult.galleries
         )
+
+        try {
+          const trashResult =
+            await apiFetch<TrashResponse>(
+              "/api/galleries/trash/items"
+            )
+
+          setTrashCount(
+            trashResult.galleries.length
+          )
+        } catch {
+          // Trash count is helpful but should never
+          // block the main gallery manager.
+          setTrashCount(0)
+        }
 
         if (
           workspaceResult.workspace
@@ -526,7 +554,7 @@ export default function GalleryManager() {
   ) {
     const confirmed =
       window.confirm(
-        `Delete "${gallery.title}"?\n\nThis will permanently remove the gallery and its private photos.`
+        `Move "${gallery.title}" to Trash?\n\nThe gallery will become unavailable to clients, but you can restore it within 30 days.`
       )
 
     if (!confirmed) {
@@ -543,6 +571,7 @@ export default function GalleryManager() {
     try {
       await apiFetch<{
         ok: boolean
+        trashed: boolean
       }>(
         `/api/galleries/${gallery.id}`,
         {
@@ -559,15 +588,20 @@ export default function GalleryManager() {
           )
       )
 
+      setTrashCount(
+        (current) =>
+          current + 1
+      )
+
       setStatusMessage(
-        "Gallery deleted."
+        "Gallery moved to Trash. You can restore it within 30 days."
       )
 
     } catch (error) {
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "Unable to delete gallery."
+          : "Unable to move gallery to Trash."
       )
 
     } finally {
@@ -675,26 +709,55 @@ export default function GalleryManager() {
           </div>
 
 
-          <button
-            type="button"
-            onClick={() => {
-              resetCreateForm()
-              setShowCreate(true)
-            }}
-            className="flex h-10 items-center gap-2 rounded-xl bg-[#073B4C] px-4 text-sm font-semibold text-white transition hover:bg-[#0B5363]"
-          >
+          <div className="flex items-center gap-2">
 
-            <Plus className="h-4 w-4" />
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  "/dashboard/galleries/trash"
+                )
+              }
+              className="flex h-10 items-center gap-2 rounded-xl border border-[#DCE6E8] bg-white px-3.5 text-sm font-semibold text-[#526D75] transition hover:bg-[#F5F8F9]"
+            >
 
-            <span className="hidden sm:inline">
-              New gallery
-            </span>
+              <Trash2 className="h-4 w-4" />
 
-            <span className="sm:hidden">
-              New
-            </span>
+              <span className="hidden sm:inline">
+                Trash
+              </span>
 
-          </button>
+              {trashCount > 0 && (
+                <span className="flex min-w-5 items-center justify-center rounded-full bg-[#EDF3F4] px-1.5 py-0.5 text-[10px] font-bold text-[#607880]">
+                  {trashCount}
+                </span>
+              )}
+
+            </button>
+
+
+            <button
+              type="button"
+              onClick={() => {
+                resetCreateForm()
+                setShowCreate(true)
+              }}
+              className="flex h-10 items-center gap-2 rounded-xl bg-[#073B4C] px-4 text-sm font-semibold text-white transition hover:bg-[#0B5363]"
+            >
+
+              <Plus className="h-4 w-4" />
+
+              <span className="hidden sm:inline">
+                New gallery
+              </span>
+
+              <span className="sm:hidden">
+                New
+              </span>
+
+            </button>
+
+          </div>
 
         </div>
 
@@ -743,6 +806,13 @@ export default function GalleryManager() {
               label="Photos"
               value={
                 totalPhotos.toString()
+              }
+            />
+
+            <MiniStat
+              label="Trash"
+              value={
+                trashCount.toString()
               }
             />
 
@@ -1303,6 +1373,8 @@ function GalleryCard({
 
           <button
             type="button"
+            title="Move to Trash"
+            aria-label={`Move ${gallery.title} to Trash`}
             onClick={
               onDelete
             }
