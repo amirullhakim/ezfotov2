@@ -40,6 +40,11 @@ type PrivacyMode =
   | "PASSWORD"
 
 
+type PhotoFilter =
+  | "ALL"
+  | "FAVOURITED"
+
+
 type Gallery = {
   id: string
   workspace_id: string
@@ -111,6 +116,22 @@ type PhotosResponse = {
 }
 
 
+type FavouriteSummary = {
+  gallery_id: string
+
+  total_favourites: number
+
+  favourited_photos: number
+
+  unique_visitors: number
+
+  photos: {
+    photo_id: string
+    favourite_count: number
+  }[]
+}
+
+
 type WorkspaceResponse = {
   onboarded: boolean
 
@@ -150,6 +171,16 @@ const ALLOWED_TYPES = [
 ]
 
 
+const emptyFavouriteSummary:
+  FavouriteSummary = {
+    gallery_id: "",
+    total_favourites: 0,
+    favourited_photos: 0,
+    unique_visitors: 0,
+    photos: [],
+  }
+
+
 export default function GalleryDetailManager({
   galleryId,
 }: {
@@ -176,6 +207,25 @@ export default function GalleryDetailManager({
   ] = useState<GalleryPhoto[]>(
     []
   )
+
+  const [
+    favouriteSummary,
+    setFavouriteSummary,
+  ] = useState<FavouriteSummary>(
+    emptyFavouriteSummary
+  )
+
+  const [
+    photoFilter,
+    setPhotoFilter,
+  ] = useState<PhotoFilter>(
+    "ALL"
+  )
+
+  const [
+    refreshingFavourites,
+    setRefreshingFavourites,
+  ] = useState(false)
 
   const [
     workspaceHostname,
@@ -281,6 +331,7 @@ export default function GalleryDetailManager({
         const [
           galleryResult,
           photosResult,
+          favouritesResult,
           workspaceResult,
         ] = await Promise.all([
           apiFetch<Gallery>(
@@ -289,6 +340,10 @@ export default function GalleryDetailManager({
 
           apiFetch<PhotosResponse>(
             `/api/galleries/${galleryId}/photos`
+          ),
+
+          apiFetch<FavouriteSummary>(
+            `/api/galleries/${galleryId}/favourites-summary`
           ),
 
           apiFetch<WorkspaceResponse>(
@@ -303,6 +358,10 @@ export default function GalleryDetailManager({
 
         setPhotos(
           photosResult.photos
+        )
+
+        setFavouriteSummary(
+          favouritesResult
         )
 
 
@@ -379,6 +438,55 @@ export default function GalleryDetailManager({
     )
 
 
+  const favouriteCountByPhoto =
+    useMemo(() => {
+      const counts =
+        new Map<string, number>()
+
+
+      for (
+        const item of
+        favouriteSummary.photos
+      ) {
+        counts.set(
+          item.photo_id,
+          item.favourite_count
+        )
+      }
+
+
+      return counts
+    }, [
+      favouriteSummary,
+    ])
+
+
+  const displayedPhotos =
+    useMemo(() => {
+      if (
+        photoFilter ===
+        "ALL"
+      ) {
+        return photos
+      }
+
+
+      return photos.filter(
+        (photo) =>
+          (
+            favouriteCountByPhoto.get(
+              photo.id
+            ) ??
+            0
+          ) > 0
+      )
+    }, [
+      photos,
+      photoFilter,
+      favouriteCountByPhoto,
+    ])
+
+
   const normalGalleryLink =
     gallery &&
     workspaceHostname
@@ -389,6 +497,55 @@ export default function GalleryDetailManager({
   function clearMessages() {
     setErrorMessage("")
     setStatusMessage("")
+  }
+
+
+  async function refreshFavouriteSummary(
+    showMessage = true
+  ) {
+    setRefreshingFavourites(
+      true
+    )
+
+
+    try {
+      const result =
+        await apiFetch<FavouriteSummary>(
+          `/api/galleries/${galleryId}/favourites-summary`
+        )
+
+
+      setFavouriteSummary(
+        result
+      )
+
+
+      if (
+        showMessage
+      ) {
+        setStatusMessage(
+          "Client selections refreshed."
+        )
+
+        setErrorMessage("")
+      }
+
+    } catch (error) {
+      if (
+        showMessage
+      ) {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to refresh client selections."
+        )
+      }
+
+    } finally {
+      setRefreshingFavourites(
+        false
+      )
+    }
   }
 
 
@@ -432,7 +589,9 @@ export default function GalleryDetailManager({
     }
 
 
-    setSaving(true)
+    setSaving(
+      true
+    )
 
     clearMessages()
 
@@ -735,7 +894,9 @@ export default function GalleryDetailManager({
         index += 1
       ) {
         const file =
-          selectedFiles[index]
+          selectedFiles[
+            index
+          ]
 
 
         setUploadProgress(
@@ -944,14 +1105,26 @@ export default function GalleryDetailManager({
       )
 
 
-      const refreshed =
-        await apiFetch<PhotosResponse>(
+      const [
+        refreshedPhotos,
+        refreshedFavourites,
+      ] = await Promise.all([
+        apiFetch<PhotosResponse>(
           `/api/galleries/${galleryId}/photos`
-        )
+        ),
+
+        apiFetch<FavouriteSummary>(
+          `/api/galleries/${galleryId}/favourites-summary`
+        ),
+      ])
 
 
       setPhotos(
-        refreshed.photos
+        refreshedPhotos.photos
+      )
+
+      setFavouriteSummary(
+        refreshedFavourites
       )
 
 
@@ -962,7 +1135,8 @@ export default function GalleryDetailManager({
                 ...current,
 
                 photo_count:
-                  refreshed.photos.length,
+                  refreshedPhotos
+                    .photos.length,
               }
             : current
       )
@@ -1226,6 +1400,15 @@ export default function GalleryDetailManager({
             />
 
             <MiniStat
+              label="Favourites"
+              value={
+                favouriteSummary
+                  .total_favourites
+                  .toString()
+              }
+            />
+
+            <MiniStat
               label="Storage"
               value={
                 formatBytes(
@@ -1365,7 +1548,7 @@ export default function GalleryDetailManager({
 
                 <div className="flex items-start gap-3">
 
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#E4ECEE] bg-white shadow-[0_2px_8px_rgba(20,55,65,0.04)]">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#E4ECEE] bg-white">
 
                     <PrivacyIcon className="h-4 w-4 text-[#0A929F]" />
 
@@ -1416,7 +1599,7 @@ export default function GalleryDetailManager({
                           normalGalleryLink
                         )
                       }
-                      className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E] transition hover:bg-[#F1F6F7]"
+                      className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E]"
                     >
 
                       {copiedLink ? (
@@ -1479,7 +1662,7 @@ export default function GalleryDetailManager({
                             privateLink
                           )
                         }
-                        className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E] transition hover:bg-[#F1F6F7]"
+                        className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-[#36555E]"
                       >
 
                         {copiedLink ? (
@@ -1532,7 +1715,7 @@ export default function GalleryDetailManager({
                         event.target.value
                       )
                     }
-                    className="mt-4 h-11 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none transition placeholder:text-[#A4B2B7] focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
+                    className="mt-4 h-11 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none"
                   />
 
 
@@ -1545,7 +1728,7 @@ export default function GalleryDetailManager({
                     onClick={
                       changeGalleryPassword
                     }
-                    className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#D9E5E7] bg-white text-sm font-semibold text-[#375861] transition hover:bg-[#F5F9FA] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#D9E5E7] bg-white text-sm font-semibold text-[#375861] disabled:opacity-50"
                   >
 
                     {changingPassword ? (
@@ -1605,65 +1788,176 @@ export default function GalleryDetailManager({
 
           <section className="rounded-[26px] border border-[#DFE8EA] bg-white">
 
-            <div className="flex flex-col justify-between gap-5 border-b border-[#E9EFF0] p-6 sm:flex-row sm:items-center">
+            <div className="border-b border-[#E9EFF0] p-6">
 
-              <div>
+              <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
 
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#0A929F]">
-                  Photographs
-                </p>
+                <div>
 
-                <h3 className="mt-2 text-xl font-semibold tracking-[-0.025em] text-[#173943]">
-                  Gallery photos
-                </h3>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#0A929F]">
+                    Photographs
+                  </p>
 
-                <p className="mt-1 text-sm text-[#7A8E95]">
-                  Upload JPEG, PNG or WebP images up to 15 MB each.
-                </p>
+                  <h3 className="mt-2 text-xl font-semibold tracking-[-0.025em] text-[#173943]">
+                    Gallery photos
+                  </h3>
+
+                  <p className="mt-1 text-sm text-[#7A8E95]">
+                    Upload and manage photographs for this gallery.
+                  </p>
+
+                </div>
+
+
+                <div className="flex items-center gap-2">
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      refreshFavouriteSummary()
+                    }
+                    disabled={
+                      refreshingFavourites
+                    }
+                    className="flex h-11 items-center gap-2 rounded-xl border border-[#DCE7E9] bg-white px-4 text-sm font-semibold text-[#49656D] transition hover:bg-[#F6F9FA] disabled:opacity-50"
+                  >
+
+                    <RefreshCw
+                      className={`h-4 w-4 ${
+                        refreshingFavourites
+                          ? "animate-spin"
+                          : ""
+                      }`}
+                    />
+
+                    Selections
+
+                  </button>
+
+
+                  <input
+                    ref={
+                      fileInputRef
+                    }
+                    type="file"
+                    multiple
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={
+                      handleFiles
+                    }
+                    className="hidden"
+                  />
+
+
+                  <button
+                    type="button"
+                    disabled={
+                      uploading
+                    }
+                    onClick={() =>
+                      fileInputRef.current?.click()
+                    }
+                    className="flex h-11 items-center gap-2 rounded-xl bg-[#073B4C] px-5 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+
+                    {uploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <UploadCloud className="h-4 w-4" />
+                    )}
+
+                    {uploading
+                      ? "Uploading..."
+                      : "Upload photos"}
+
+                  </button>
+
+                </div>
 
               </div>
 
 
-              <div>
+              {gallery.allow_favourites && (
+                <div className="mt-6 flex flex-wrap items-center gap-2">
 
-                <input
-                  ref={
-                    fileInputRef
-                  }
-                  type="file"
-                  multiple
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={
-                    handleFiles
-                  }
-                  className="hidden"
-                />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPhotoFilter(
+                        "ALL"
+                      )
+                    }
+                    className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                      photoFilter ===
+                      "ALL"
+                        ? "bg-[#073B4C] text-white"
+                        : "bg-[#F2F6F7] text-[#617A82] hover:bg-[#EAF1F2]"
+                    }`}
+                  >
+                    All photos{" "}
+                    <span className="ml-1 opacity-70">
+                      {photos.length}
+                    </span>
+                  </button>
 
 
-                <button
-                  type="button"
-                  disabled={
-                    uploading
-                  }
-                  onClick={() =>
-                    fileInputRef.current?.click()
-                  }
-                  className="flex h-11 items-center gap-2 rounded-xl bg-[#073B4C] px-5 text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:cursor-not-allowed disabled:opacity-60"
-                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPhotoFilter(
+                        "FAVOURITED"
+                      )
+                    }
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                      photoFilter ===
+                      "FAVOURITED"
+                        ? "bg-[#073B4C] text-white"
+                        : "bg-[#F2F6F7] text-[#617A82] hover:bg-[#EAF1F2]"
+                    }`}
+                  >
 
-                  {uploading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <UploadCloud className="h-4 w-4" />
+                    <Heart
+                      className={`h-4 w-4 ${
+                        photoFilter ===
+                        "FAVOURITED"
+                          ? "fill-current"
+                          : ""
+                      }`}
+                    />
+
+                    Favourited
+
+                    <span className="opacity-70">
+                      {
+                        favouriteSummary
+                          .favourited_photos
+                      }
+                    </span>
+
+                  </button>
+
+
+                  {favouriteSummary
+                    .unique_visitors >
+                    0 && (
+
+                    <p className="ml-auto text-xs text-[#84969D]">
+                      {
+                        favouriteSummary
+                          .unique_visitors
+                      }{" "}
+                      {favouriteSummary
+                        .unique_visitors ===
+                      1
+                        ? "visitor"
+                        : "visitors"}{" "}
+                      made selections
+                    </p>
+
                   )}
 
-                  {uploading
-                    ? "Uploading..."
-                    : "Upload photos"}
-
-                </button>
-
-              </div>
+                </div>
+              )}
 
             </div>
 
@@ -1723,97 +2017,175 @@ export default function GalleryDetailManager({
 
               </div>
 
+            ) : displayedPhotos.length ===
+              0 ? (
+
+              <div className="flex min-h-[420px] flex-col items-center justify-center px-6 text-center">
+
+                <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[#F2F6F7]">
+
+                  <Heart className="h-7 w-7 text-[#82969C]" />
+
+                </div>
+
+
+                <h4 className="mt-6 text-xl font-semibold text-[#173943]">
+                  No favourited photos yet
+                </h4>
+
+
+                <p className="mt-2 max-w-md text-sm leading-6 text-[#778C93]">
+                  Client-selected photographs will appear here.
+                </p>
+
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPhotoFilter(
+                      "ALL"
+                    )
+                  }
+                  className="mt-5 text-sm font-semibold text-[#0A929F]"
+                >
+                  View all photos
+                </button>
+
+              </div>
+
             ) : (
 
               <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
 
-                {photos.map(
-                  (photo) => (
-
-                    <article
-                      key={
+                {displayedPhotos.map(
+                  (photo) => {
+                    const favouriteCount =
+                      favouriteCountByPhoto.get(
                         photo.id
-                      }
-                      className="group overflow-hidden rounded-2xl border border-[#E1E9EB] bg-[#F6F9FA]"
-                    >
+                      ) ?? 0
 
-                      <div className="relative aspect-[4/3] overflow-hidden bg-[#EAF0F1]">
 
-                        {photo.view_url ? (
+                    return (
+                      <article
+                        key={
+                          photo.id
+                        }
+                        className="group overflow-hidden rounded-2xl border border-[#E1E9EB] bg-[#F6F9FA]"
+                      >
 
-                          <img
-                            src={
-                              photo.view_url
+                        <div className="relative aspect-[4/3] overflow-hidden bg-[#EAF0F1]">
+
+                          {photo.view_url ? (
+
+                            <img
+                              src={
+                                photo.view_url
+                              }
+                              alt={
+                                photo.filename
+                              }
+                              className="h-full w-full object-cover"
+                            />
+
+                          ) : (
+
+                            <div className="flex h-full items-center justify-center">
+
+                              <Images className="h-7 w-7 text-[#9DB0B6]" />
+
+                            </div>
+
+                          )}
+
+
+                          {photo.is_cover && (
+
+                            <span className="absolute left-3 top-3 rounded-full bg-[#073B4C]/90 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white">
+                              Cover
+                            </span>
+
+                          )}
+
+
+                          {favouriteCount >
+                            0 && (
+
+                            <span className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1.5 text-xs font-bold text-[#31545D] shadow-sm">
+
+                              <Heart className="h-3.5 w-3.5 fill-[#0A9EAB] text-[#0A9EAB]" />
+
+                              {
+                                favouriteCount
+                              }
+
+                            </span>
+
+                          )}
+
+
+                          <button
+                            type="button"
+                            disabled={
+                              deletingPhotoId ===
+                              photo.id
                             }
-                            alt={
-                              photo.filename
+                            onClick={() =>
+                              deletePhoto(
+                                photo
+                              )
                             }
-                            className="h-full w-full object-cover"
-                          />
+                            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-xl bg-white/95 text-[#A44D57] opacity-0 shadow-sm transition group-hover:opacity-100 disabled:opacity-50"
+                          >
 
-                        ) : (
+                            {deletingPhotoId ===
+                            photo.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
 
-                          <div className="flex h-full items-center justify-center">
+                          </button>
 
-                            <Images className="h-7 w-7 text-[#9DB0B6]" />
+                        </div>
+
+
+                        <div className="p-3">
+
+                          <p className="truncate text-xs font-semibold text-[#36555E]">
+                            {photo.filename}
+                          </p>
+
+                          <div className="mt-1 flex items-center justify-between gap-3">
+
+                            <p className="text-[10px] text-[#889A9F]">
+                              {formatBytes(
+                                photo.size_bytes
+                              )}
+                            </p>
+
+
+                            {favouriteCount >
+                              0 && (
+
+                              <p className="text-[10px] font-semibold text-[#0A929F]">
+                                {
+                                  favouriteCount
+                                }{" "}
+                                {favouriteCount ===
+                                1
+                                  ? "favourite"
+                                  : "favourites"}
+                              </p>
+
+                            )}
 
                           </div>
 
-                        )}
+                        </div>
 
-
-                        {photo.is_cover && (
-
-                          <span className="absolute left-3 top-3 rounded-full bg-[#073B4C]/90 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white backdrop-blur">
-                            Cover
-                          </span>
-
-                        )}
-
-
-                        <button
-                          type="button"
-                          disabled={
-                            deletingPhotoId ===
-                            photo.id
-                          }
-                          onClick={() =>
-                            deletePhoto(
-                              photo
-                            )
-                          }
-                          className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-xl bg-white/95 text-[#A44D57] opacity-0 shadow-sm transition group-hover:opacity-100 disabled:opacity-50"
-                        >
-
-                          {deletingPhotoId ===
-                          photo.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-
-                        </button>
-
-                      </div>
-
-
-                      <div className="p-3">
-
-                        <p className="truncate text-xs font-semibold text-[#36555E]">
-                          {photo.filename}
-                        </p>
-
-                        <p className="mt-1 text-[10px] text-[#889A9F]">
-                          {formatBytes(
-                            photo.size_bytes
-                          )}
-                        </p>
-
-                      </div>
-
-                    </article>
-
-                  )
+                      </article>
+                    )
+                  }
                 )}
 
               </div>
@@ -2052,7 +2424,9 @@ function formatBytes(
 
   if (
     bytes <
-    1024 * 1024 * 1024
+    1024 *
+    1024 *
+    1024
   ) {
     return `${(
       bytes /
