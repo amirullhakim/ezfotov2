@@ -1,10 +1,10 @@
 "use client"
 
 import {
-  ArrowLeft,
   CalendarDays,
   Download,
   Expand,
+  Heart,
   Images,
   KeyRound,
   Loader2,
@@ -14,6 +14,8 @@ import {
 
 import {
   FormEvent,
+  useCallback,
+  useEffect,
   useState,
 } from "react"
 
@@ -95,14 +97,43 @@ type GalleryData = {
 }
 
 
+type UnlockResponse =
+  GalleryData & {
+    access_token?: string
+    access_token_expires_in?: number
+  }
+
+
+type FavouritesResponse = {
+  enabled: boolean
+  photo_ids: string[]
+  count: number
+}
+
+
+const API_URL =
+  process.env
+    .NEXT_PUBLIC_API_URL ??
+  "http://127.0.0.1:8000"
+
+
+const VISITOR_STORAGE_KEY =
+  "ezfotoo_gallery_visitor_v1"
+
+
 export default function PublicClientGallery({
   workspaceSlug,
   gallerySlug,
+  privateToken,
   initialData,
   initialError,
 }: {
   workspaceSlug: string
   gallerySlug: string
+
+  privateToken:
+    | string
+    | null
 
   initialData:
     | GalleryData
@@ -141,6 +172,12 @@ export default function PublicClientGallery({
 
 
   const [
+    restoringAccess,
+    setRestoringAccess,
+  ] = useState(false)
+
+
+  const [
     selectedPhoto,
     setSelectedPhoto,
   ] = useState<
@@ -148,6 +185,323 @@ export default function PublicClientGallery({
   >(
     null
   )
+
+
+  const [
+    visitorToken,
+    setVisitorToken,
+  ] = useState("")
+
+
+  const [
+    galleryAccessToken,
+    setGalleryAccessToken,
+  ] = useState("")
+
+
+  const [
+    favouritePhotoIds,
+    setFavouritePhotoIds,
+  ] = useState<Set<string>>(
+    new Set()
+  )
+
+
+  const [
+    favouritesLoaded,
+    setFavouritesLoaded,
+  ] = useState(false)
+
+
+  const [
+    favouriteLoadingId,
+    setFavouriteLoadingId,
+  ] = useState<
+    string | null
+  >(
+    null
+  )
+
+
+  const passwordAccessStorageKey =
+    `ezfotoo_gallery_access:` +
+    `${workspaceSlug}:` +
+    `${gallerySlug}`
+
+
+  const buildGalleryEndpoint =
+    useCallback(
+      (
+        suffix = ""
+      ) => {
+        let endpoint =
+          `${API_URL}` +
+          `/api/public/galleries/` +
+          `${encodeURIComponent(
+            workspaceSlug
+          )}/` +
+          `${encodeURIComponent(
+            gallerySlug
+          )}` +
+          suffix
+
+
+        if (
+          privateToken
+        ) {
+          endpoint +=
+            `${endpoint.includes("?")
+              ? "&"
+              : "?"}` +
+            `t=${encodeURIComponent(
+              privateToken
+            )}`
+        }
+
+
+        return endpoint
+      },
+      [
+        workspaceSlug,
+        gallerySlug,
+        privateToken,
+      ]
+    )
+
+
+  useEffect(() => {
+    let token =
+      localStorage.getItem(
+        VISITOR_STORAGE_KEY
+      )
+
+
+    if (!token) {
+      token =
+        crypto.randomUUID()
+
+
+      localStorage.setItem(
+        VISITOR_STORAGE_KEY,
+        token
+      )
+    }
+
+
+    setVisitorToken(
+      token
+    )
+
+
+    const storedAccessToken =
+      localStorage.getItem(
+        passwordAccessStorageKey
+      )
+
+
+    if (
+      storedAccessToken
+    ) {
+      setGalleryAccessToken(
+        storedAccessToken
+      )
+    }
+  }, [
+    passwordAccessStorageKey,
+  ])
+
+
+  useEffect(() => {
+    async function restorePasswordAccess() {
+      if (
+        !data ||
+        !data.locked ||
+        data.gallery.privacy_mode !==
+          "PASSWORD" ||
+        !galleryAccessToken
+      ) {
+        return
+      }
+
+
+      setRestoringAccess(
+        true
+      )
+
+
+      try {
+        const response =
+          await fetch(
+            buildGalleryEndpoint(),
+            {
+              headers: {
+                "X-Gallery-Access":
+                  galleryAccessToken,
+              },
+            }
+          )
+
+
+        if (!response.ok) {
+          localStorage.removeItem(
+            passwordAccessStorageKey
+          )
+
+          setGalleryAccessToken(
+            ""
+          )
+
+          return
+        }
+
+
+        const restored =
+          await response.json()
+
+
+        if (
+          restored.locked
+        ) {
+          localStorage.removeItem(
+            passwordAccessStorageKey
+          )
+
+          setGalleryAccessToken(
+            ""
+          )
+
+          return
+        }
+
+
+        setData(
+          restored
+        )
+
+        setError("")
+
+      } catch {
+        // Keep password form available.
+      } finally {
+        setRestoringAccess(
+          false
+        )
+      }
+    }
+
+
+    restorePasswordAccess()
+  }, [
+    data,
+    galleryAccessToken,
+    buildGalleryEndpoint,
+    passwordAccessStorageKey,
+  ])
+
+
+  const loadFavourites =
+    useCallback(
+      async () => {
+        if (
+          !data ||
+          data.locked ||
+          !data.gallery
+            .allow_favourites ||
+          !visitorToken
+        ) {
+          return
+        }
+
+
+        try {
+          const headers =
+            new Headers()
+
+
+          headers.set(
+            "X-Gallery-Visitor",
+            visitorToken
+          )
+
+
+          if (
+            data.gallery
+              .privacy_mode ===
+              "PASSWORD" &&
+            galleryAccessToken
+          ) {
+            headers.set(
+              "X-Gallery-Access",
+              galleryAccessToken
+            )
+          }
+
+
+          const response =
+            await fetch(
+              buildGalleryEndpoint(
+                "/favourites"
+              ),
+              {
+                headers,
+              }
+            )
+
+
+          if (!response.ok) {
+            if (
+              response.status === 401
+            ) {
+              localStorage.removeItem(
+                passwordAccessStorageKey
+              )
+
+              setGalleryAccessToken(
+                ""
+              )
+            }
+
+            return
+          }
+
+
+          const favourites =
+            (
+              await response.json()
+            ) as FavouritesResponse
+
+
+          setFavouritePhotoIds(
+            new Set(
+              favourites.photo_ids
+            )
+          )
+
+
+          setFavouritesLoaded(
+            true
+          )
+
+        } catch {
+          // Gallery can still be viewed if
+          // favourites temporarily fail.
+        }
+      },
+      [
+        data,
+        visitorToken,
+        galleryAccessToken,
+        buildGalleryEndpoint,
+        passwordAccessStorageKey,
+      ]
+    )
+
+
+  useEffect(() => {
+    loadFavourites()
+  }, [
+    loadFavourites,
+  ])
 
 
   async function unlockGallery(
@@ -163,22 +517,11 @@ export default function PublicClientGallery({
 
 
     try {
-      const apiUrl =
-        process.env
-          .NEXT_PUBLIC_API_URL ??
-        "http://127.0.0.1:8000"
-
-
       const response =
         await fetch(
-          `${apiUrl}` +
-          `/api/public/galleries/` +
-          `${encodeURIComponent(
-            workspaceSlug
-          )}/` +
-          `${encodeURIComponent(
-            gallerySlug
-          )}/unlock`,
+          buildGalleryEndpoint(
+            "/unlock"
+          ),
           {
             method: "POST",
 
@@ -199,9 +542,11 @@ export default function PublicClientGallery({
         let message =
           "Unable to unlock gallery."
 
+
         try {
           const body =
             await response.json()
+
 
           if (
             typeof body.detail ===
@@ -215,6 +560,7 @@ export default function PublicClientGallery({
           // Keep default.
         }
 
+
         throw new Error(
           message
         )
@@ -222,7 +568,24 @@ export default function PublicClientGallery({
 
 
       const unlocked =
-        await response.json()
+        (
+          await response.json()
+        ) as UnlockResponse
+
+
+      if (
+        unlocked.access_token
+      ) {
+        localStorage.setItem(
+          passwordAccessStorageKey,
+          unlocked.access_token
+        )
+
+
+        setGalleryAccessToken(
+          unlocked.access_token
+        )
+      }
 
 
       setData(
@@ -230,6 +593,14 @@ export default function PublicClientGallery({
       )
 
       setPassword("")
+
+      setFavouritePhotoIds(
+        new Set()
+      )
+
+      setFavouritesLoaded(
+        false
+      )
 
     } catch (unlockError) {
       setError(
@@ -242,6 +613,154 @@ export default function PublicClientGallery({
     } finally {
       setUnlocking(
         false
+      )
+    }
+  }
+
+
+  async function toggleFavourite(
+    photo: PublicPhoto
+  ) {
+    if (
+      !data ||
+      !data.gallery
+        .allow_favourites ||
+      !visitorToken ||
+      favouriteLoadingId
+    ) {
+      return
+    }
+
+
+    const currentlyFavourite =
+      favouritePhotoIds.has(
+        photo.id
+      )
+
+
+    setFavouriteLoadingId(
+      photo.id
+    )
+
+
+    try {
+      const headers =
+        new Headers()
+
+
+      headers.set(
+        "X-Gallery-Visitor",
+        visitorToken
+      )
+
+
+      if (
+        data.gallery
+          .privacy_mode ===
+          "PASSWORD" &&
+        galleryAccessToken
+      ) {
+        headers.set(
+          "X-Gallery-Access",
+          galleryAccessToken
+        )
+      }
+
+
+      const response =
+        await fetch(
+          buildGalleryEndpoint(
+            `/favourites/${photo.id}`
+          ),
+          {
+            method:
+              currentlyFavourite
+                ? "DELETE"
+                : "POST",
+
+            headers,
+          }
+        )
+
+
+      if (!response.ok) {
+        let message =
+          "Unable to update favourite."
+
+
+        try {
+          const body =
+            await response.json()
+
+
+          if (
+            typeof body.detail ===
+            "string"
+          ) {
+            message =
+              body.detail
+          }
+
+        } catch {
+          // Keep default.
+        }
+
+
+        if (
+          response.status === 401
+        ) {
+          localStorage.removeItem(
+            passwordAccessStorageKey
+          )
+
+          setGalleryAccessToken(
+            ""
+          )
+        }
+
+
+        throw new Error(
+          message
+        )
+      }
+
+
+      setFavouritePhotoIds(
+        (current) => {
+          const next =
+            new Set(
+              current
+            )
+
+
+          if (
+            currentlyFavourite
+          ) {
+            next.delete(
+              photo.id
+            )
+          } else {
+            next.add(
+              photo.id
+            )
+          }
+
+
+          return next
+        }
+      )
+
+    } catch (favouriteError) {
+      setError(
+        favouriteError
+          instanceof Error
+          ? favouriteError.message
+          : "Unable to update favourite."
+      )
+
+    } finally {
+      setFavouriteLoadingId(
+        null
       )
     }
   }
@@ -284,7 +803,8 @@ export default function PublicClientGallery({
           data.gallery.title
         }
         clientName={
-          data.gallery.client_name
+          data.gallery
+            .client_name
         }
         password={
           password
@@ -293,7 +813,11 @@ export default function PublicClientGallery({
           error
         }
         loading={
-          unlocking
+          unlocking ||
+          restoringAccess
+        }
+        restoring={
+          restoringAccess
         }
         onPasswordChange={
           setPassword
@@ -320,6 +844,10 @@ export default function PublicClientGallery({
     )
 
 
+  const favouriteCount =
+    favouritePhotoIds.size
+
+
   return (
     <main className="min-h-screen bg-[#F8FAFA] text-[#173943]">
 
@@ -336,11 +864,37 @@ export default function PublicClientGallery({
           </a>
 
 
-          <div className="flex items-center gap-2 text-xs font-semibold text-[#789097]">
+          <div className="flex items-center gap-3">
 
-            <Images className="h-4 w-4 text-[#0A9EAB]" />
+            {data.gallery
+              .allow_favourites && (
 
-            Client Gallery
+              <div className="flex items-center gap-1.5 rounded-full bg-[#F3F7F8] px-3 py-1.5 text-xs font-semibold text-[#607880]">
+
+                <Heart
+                  className={`h-3.5 w-3.5 ${
+                    favouriteCount > 0
+                      ? "fill-[#0A9EAB] text-[#0A9EAB]"
+                      : "text-[#799097]"
+                  }`}
+                />
+
+                {favouritesLoaded
+                  ? favouriteCount
+                  : "—"}
+
+              </div>
+
+            )}
+
+
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#789097]">
+
+              <Images className="h-4 w-4 text-[#0A9EAB]" />
+
+              Client Gallery
+
+            </div>
 
           </div>
 
@@ -385,7 +939,10 @@ export default function PublicClientGallery({
             {data.gallery.client_name && (
 
               <p className="mt-5 text-lg text-white/80">
-                {data.gallery.client_name}
+                {
+                  data.gallery
+                    .client_name
+                }
               </p>
 
             )}
@@ -415,6 +972,24 @@ export default function PublicClientGallery({
                   ? "photograph"
                   : "photographs"}
               </span>
+
+
+              {data.gallery
+                .allow_favourites &&
+                favouriteCount > 0 && (
+
+                <span className="flex items-center gap-1.5">
+
+                  <Heart className="h-4 w-4 fill-current" />
+
+                  {favouriteCount}{" "}
+                  {favouriteCount === 1
+                    ? "favourite"
+                    : "favourites"}
+
+                </span>
+
+              )}
 
             </div>
 
@@ -466,6 +1041,20 @@ export default function PublicClientGallery({
       )}
 
 
+      {/* ERROR */}
+      {error && (
+
+        <div className="mx-auto mt-6 max-w-[1500px] px-4 sm:px-5 lg:px-8">
+
+          <div className="rounded-xl border border-[#F1D9DD] bg-[#FFF7F8] px-4 py-3 text-sm text-[#A54C58]">
+            {error}
+          </div>
+
+        </div>
+
+      )}
+
+
       {/* PHOTOS */}
       <section className="mx-auto max-w-[1500px] px-4 py-8 sm:px-5 lg:px-8 lg:py-12">
 
@@ -499,6 +1088,17 @@ export default function PublicClientGallery({
                 ) {
                   return null
                 }
+
+
+                const isFavourite =
+                  favouritePhotoIds.has(
+                    photo.id
+                  )
+
+
+                const favouriteLoading =
+                  favouriteLoadingId ===
+                  photo.id
 
 
                 return (
@@ -540,6 +1140,50 @@ export default function PublicClientGallery({
                       </div>
 
                     </button>
+
+
+                    {data.gallery
+                      .allow_favourites && (
+
+                      <button
+                        type="button"
+                        aria-label={
+                          isFavourite
+                            ? "Remove from favourites"
+                            : "Add to favourites"
+                        }
+                        disabled={
+                          favouriteLoading
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation()
+
+                          toggleFavourite(
+                            photo
+                          )
+                        }}
+                        className={`absolute left-3 top-3 flex h-10 w-10 items-center justify-center rounded-full shadow-sm backdrop-blur transition ${
+                          isFavourite
+                            ? "bg-[#073B4C] text-white"
+                            : "bg-white/95 text-[#36555E] hover:bg-white"
+                        }`}
+                      >
+
+                        {favouriteLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Heart
+                            className={`h-4 w-4 ${
+                              isFavourite
+                                ? "fill-current"
+                                : ""
+                            }`}
+                          />
+                        )}
+
+                      </button>
+
+                    )}
 
 
                     {data.gallery.allow_downloads &&
@@ -611,6 +1255,62 @@ export default function PublicClientGallery({
           </button>
 
 
+          {data.gallery
+            .allow_favourites && (
+
+            <button
+              type="button"
+              aria-label={
+                favouritePhotoIds.has(
+                  selectedPhoto.id
+                )
+                  ? "Remove from favourites"
+                  : "Add to favourites"
+              }
+              disabled={
+                favouriteLoadingId ===
+                selectedPhoto.id
+              }
+              onClick={() =>
+                toggleFavourite(
+                  selectedPhoto
+                )
+              }
+              className={`absolute left-5 top-5 z-20 flex h-11 items-center gap-2 rounded-full px-4 text-sm font-semibold backdrop-blur transition ${
+                favouritePhotoIds.has(
+                  selectedPhoto.id
+                )
+                  ? "bg-white text-[#073B4C]"
+                  : "bg-white/10 text-white hover:bg-white/20"
+              }`}
+            >
+
+              {favouriteLoadingId ===
+              selectedPhoto.id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Heart
+                  className={`h-4 w-4 ${
+                    favouritePhotoIds.has(
+                      selectedPhoto.id
+                    )
+                      ? "fill-current"
+                      : ""
+                  }`}
+                />
+              )}
+
+              {favouritePhotoIds.has(
+                selectedPhoto.id
+              )
+                ? "Favourited"
+                : "Favourite"}
+
+            </button>
+
+          )}
+
+
           <img
             src={
               selectedPhoto.view_url
@@ -656,10 +1356,12 @@ function PasswordScreen({
   password,
   error,
   loading,
+  restoring,
   onPasswordChange,
   onSubmit,
 }: {
   workspaceName: string
+
   title: string
 
   clientName:
@@ -671,6 +1373,7 @@ function PasswordScreen({
   error: string
 
   loading: boolean
+  restoring: boolean
 
   onPasswordChange:
     (value: string) => void
@@ -710,76 +1413,90 @@ function PasswordScreen({
         )}
 
 
-        <p className="mt-6 text-sm leading-6 text-[#6F858C]">
-          This gallery is password protected. Enter the password provided by your photographer.
-        </p>
+        {restoring ? (
 
+          <div className="mt-8 flex items-center gap-3 rounded-xl bg-[#F5F9FA] px-4 py-4 text-sm font-semibold text-[#58717A]">
 
-        <form
-          onSubmit={
-            onSubmit
-          }
-          className="mt-7"
-        >
+            <Loader2 className="h-4 w-4 animate-spin text-[#0A9EAB]" />
 
-          <label className="mb-2 block text-sm font-semibold text-[#36535C]">
-            Gallery password
-          </label>
-
-
-          <div className="relative">
-
-            <KeyRound className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#82959B]" />
-
-
-            <input
-              type="password"
-              required
-              autoFocus
-              value={
-                password
-              }
-              onChange={(event) =>
-                onPasswordChange(
-                  event.target.value
-                )
-              }
-              className="h-12 w-full rounded-xl border border-[#DCE6E8] bg-white pl-11 pr-4 text-sm text-[#203F48] outline-none transition focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
-            />
+            Restoring gallery access...
 
           </div>
 
-
-          {error && (
-
-            <div className="mt-4 rounded-xl border border-[#F1D9DD] bg-[#FFF7F8] px-4 py-3 text-sm text-[#A54C58]">
-              {error}
-            </div>
-
-          )}
+        ) : (
+          <>
+            <p className="mt-6 text-sm leading-6 text-[#6F858C]">
+              This gallery is password protected. Enter the password provided by your photographer.
+            </p>
 
 
-          <button
-            type="submit"
-            disabled={
-              loading
-            }
-            className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] font-semibold text-white transition hover:bg-[#0B5363] disabled:opacity-60"
-          >
+            <form
+              onSubmit={
+                onSubmit
+              }
+              className="mt-7"
+            >
 
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <LockKeyhole className="h-4 w-4" />
-            )}
+              <label className="mb-2 block text-sm font-semibold text-[#36535C]">
+                Gallery password
+              </label>
 
-            {loading
-              ? "Opening gallery..."
-              : "Open Gallery"}
 
-          </button>
+              <div className="relative">
 
-        </form>
+                <KeyRound className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#82959B]" />
+
+
+                <input
+                  type="password"
+                  required
+                  autoFocus
+                  value={
+                    password
+                  }
+                  onChange={(event) =>
+                    onPasswordChange(
+                      event.target.value
+                    )
+                  }
+                  className="h-12 w-full rounded-xl border border-[#DCE6E8] bg-white pl-11 pr-4 text-sm text-[#203F48] outline-none transition focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10"
+                />
+
+              </div>
+
+
+              {error && (
+
+                <div className="mt-4 rounded-xl border border-[#F1D9DD] bg-[#FFF7F8] px-4 py-3 text-sm text-[#A54C58]">
+                  {error}
+                </div>
+
+              )}
+
+
+              <button
+                type="submit"
+                disabled={
+                  loading
+                }
+                className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] font-semibold text-white transition hover:bg-[#0B5363] disabled:opacity-60"
+              >
+
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <LockKeyhole className="h-4 w-4" />
+                )}
+
+                {loading
+                  ? "Opening gallery..."
+                  : "Open Gallery"}
+
+              </button>
+
+            </form>
+          </>
+        )}
 
       </div>
 

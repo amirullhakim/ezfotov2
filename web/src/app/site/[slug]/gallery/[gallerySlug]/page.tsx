@@ -33,7 +33,7 @@ export default async function PublicGalleryPage({
     query.t
 
 
-  const token =
+  const privateToken =
     Array.isArray(
       rawToken
     )
@@ -54,10 +54,10 @@ export default async function PublicGalleryPage({
     `${encodeURIComponent(gallerySlug)}`
 
 
-  if (token) {
+  if (privateToken) {
     endpoint +=
       `?t=${encodeURIComponent(
-        token
+        privateToken
       )}`
   }
 
@@ -109,6 +109,9 @@ export default async function PublicGalleryPage({
         gallerySlug={
           gallerySlug
         }
+        privateToken={
+          privateToken ?? null
+        }
         initialData={
           null
         }
@@ -138,6 +141,9 @@ export default async function PublicGalleryPage({
       }
       gallerySlug={
         gallerySlug
+      }
+      privateToken={
+        privateToken ?? null
       }
       initialData={
         gallery
