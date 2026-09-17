@@ -22,6 +22,9 @@ from app.api.routes.workspaces import router as workspaces_router
 from app.api.routes.gallery_trash import (
     router as gallery_trash_router,
 )
+from app.api.routes.internal_gallery_cleanup import (
+    router as internal_gallery_cleanup_router,
+)
 
 
 api_router = APIRouter()
@@ -73,4 +76,8 @@ api_router.include_router(
 
 api_router.include_router(
     gallery_trash_router
+)
+
+api_router.include_router(
+    internal_gallery_cleanup_router
 )
