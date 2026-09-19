@@ -33,6 +33,7 @@ import {
   useState,
 } from "react"
 
+import EventProcessingCard from "@/components/events/EventProcessingCard"
 import { apiFetch } from "@/lib/api"
 
 
@@ -1351,6 +1352,20 @@ export default function EventDetailManager({
           </div>
 
         )}
+
+
+        {/* AI PROCESSING */}
+        <EventProcessingCard
+          eventId={
+            event.id
+          }
+          eventStatus={
+            event.status
+          }
+          photoTotal={
+            photoTotal
+          }
+        />
 
 
         {/* UPLOAD */}

@@ -16,6 +16,10 @@ from app.api.routes.event_photos import (
     router as event_photos_router,
 )
 
+from app.api.routes.event_processing import (
+    router as event_processing_router,
+)
+
 from app.api.routes.event_sales import (
     router as event_sales_router,
 )
@@ -122,4 +126,8 @@ api_router.include_router(
 
 api_router.include_router(
     event_photos_router
+)
+
+api_router.include_router(
+    event_processing_router
 )
