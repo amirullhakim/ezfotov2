@@ -16,6 +16,10 @@ from app.models.gallery_photo import GalleryPhoto
 from app.models.event_gallery import EventGallery
 from app.models.event_photo import EventPhoto
 
+from app.models.event_processing_job import EventProcessingJob
+from app.models.event_bib_detection import EventBibDetection
+from app.models.event_face_embedding import EventFaceEmbedding
+
 
 __all__ = [
     "Profile",
@@ -28,9 +32,14 @@ __all__ = [
     "PortfolioItem",
     "PhotographyPackage",
     "MediaAsset",
+
     "ClientGallery",
     "GalleryFavourite",
     "GalleryPhoto",
+
     "EventGallery",
     "EventPhoto",
+    "EventProcessingJob",
+    "EventBibDetection",
+    "EventFaceEmbedding",
 ]
