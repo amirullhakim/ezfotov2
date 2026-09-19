@@ -42,8 +42,12 @@ OCR_ALLOWLIST = (
 
 
 _yolo_model: YOLO | None = None
-
 _ocr_reader: easyocr.Reader | None = None
+
+
+# --------------------------------------------------
+# MODELS
+# --------------------------------------------------
 
 
 def _model_path() -> Path:
@@ -94,9 +98,18 @@ def get_ocr_reader() -> easyocr.Reader:
     return _ocr_reader
 
 
-def normalize_bib_text(
+# --------------------------------------------------
+# BIB NORMALIZATION
+# --------------------------------------------------
+
+
+def clean_ocr_text(
     value: str,
 ) -> str:
+    """
+    Keep only uppercase letters and digits.
+    """
+
     cleaned = (
         value
         .upper()
@@ -110,6 +123,114 @@ def normalize_bib_text(
     )
 
     return cleaned[:50]
+
+
+def normalize_numeric_confusions(
+    value: str,
+) -> str:
+    """
+    Correct conservative OCR mistakes.
+
+    Examples:
+        O7  -> 07
+        O23 -> 023
+
+    We only turn O into zero when the candidate
+    otherwise looks numeric. We do NOT turn:
+
+        M90038 -> M90038
+
+    into something else.
+    """
+
+    if not value:
+        return value
+
+    if re.fullmatch(
+        r"[O0-9]+",
+        value,
+    ):
+        return value.replace(
+            "O",
+            "0",
+        )
+
+    return value
+
+
+def is_valid_bib_candidate(
+    value: str,
+) -> bool:
+    """
+    Apply practical bib-number filtering.
+
+    Valid examples:
+        07
+        564
+        1024
+        A1024
+        M90038
+        HM204
+
+    Rejected examples:
+        B
+        V
+        M
+        PHOTO
+        RACE
+    """
+
+    if not value:
+        return False
+
+    # Isolated OCR characters are normally
+    # logos, shirt graphics or noise.
+    if len(value) < 2:
+        return False
+
+    # Keep bibs within a practical range.
+    if len(value) > 16:
+        return False
+
+    # Most useful bib identifiers must contain
+    # at least one actual digit.
+    if not any(
+        character.isdigit()
+        for character in value
+    ):
+        return False
+
+    # Only alphanumeric identifiers.
+    if not value.isalnum():
+        return False
+
+    return True
+
+
+def normalize_bib_text(
+    value: str,
+) -> str | None:
+    cleaned = clean_ocr_text(
+        value
+    )
+
+    cleaned = (
+        normalize_numeric_confusions(
+            cleaned
+        )
+    )
+
+    if not is_valid_bib_candidate(
+        cleaned
+    ):
+        return None
+
+    return cleaned
+
+
+# --------------------------------------------------
+# IMAGE
+# --------------------------------------------------
 
 
 def decode_image(
@@ -133,6 +254,11 @@ def decode_image(
     return image
 
 
+# --------------------------------------------------
+# BIB CROP PREPROCESSING
+# --------------------------------------------------
+
+
 def preprocess_bib_crop(
     crop: np.ndarray,
 ) -> list[np.ndarray]:
@@ -144,7 +270,7 @@ def preprocess_bib_crop(
         cv2.COLOR_BGR2GRAY,
     )
 
-    height, width = (
+    _, width = (
         gray.shape[:2]
     )
 
@@ -170,8 +296,13 @@ def preprocess_bib_crop(
             cv2.INTER_CUBIC,
     )
 
+    # Slight contrast normalization.
+    equalized = cv2.equalizeHist(
+        resized
+    )
+
     blurred = cv2.GaussianBlur(
-        resized,
+        equalized,
         (
             3,
             3,
@@ -193,11 +324,27 @@ def preprocess_bib_crop(
         otsu
     )
 
+    adaptive = cv2.adaptiveThreshold(
+        blurred,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31,
+        9,
+    )
+
     return [
         resized,
+        equalized,
         otsu,
         inverted,
+        adaptive,
     ]
+
+
+# --------------------------------------------------
+# OCR
+# --------------------------------------------------
 
 
 def best_ocr_result(
@@ -238,20 +385,36 @@ def best_ocr_result(
                 result[2]
             )
 
-            normalized = normalize_bib_text(
-                raw_text
+            if (
+                confidence
+                < OCR_MIN_CONFIDENCE
+            ):
+                continue
+
+            normalized = (
+                normalize_bib_text(
+                    raw_text
+                )
             )
 
             if not normalized:
                 continue
 
-            if confidence < OCR_MIN_CONFIDENCE:
-                continue
+            if (
+                confidence
+                > best_confidence
+            ):
+                best_raw = (
+                    raw_text
+                )
 
-            if confidence > best_confidence:
-                best_raw = raw_text
-                best_normalized = normalized
-                best_confidence = confidence
+                best_normalized = (
+                    normalized
+                )
+
+                best_confidence = (
+                    confidence
+                )
 
     if (
         best_raw is None
@@ -276,6 +439,11 @@ def best_ocr_result(
     )
 
 
+# --------------------------------------------------
+# YOLO + OCR
+# --------------------------------------------------
+
+
 def recognize_bibs(
     image_bytes: bytes,
 ) -> list[dict]:
@@ -293,17 +461,15 @@ def recognize_bibs(
         device="cpu",
     )
 
-    detections: list[dict] = []
-
     if not prediction:
-        return detections
+        return []
 
     result = prediction[0]
 
     boxes = result.boxes
 
     if boxes is None:
-        return detections
+        return []
 
     height, width = (
         image.shape[:2]
@@ -320,6 +486,9 @@ def recognize_bibs(
         .cpu()
         .tolist()
     )
+
+    detections: list[dict] = []
+
 
     for (
         coordinates_item,
@@ -432,4 +601,81 @@ def recognize_bibs(
             }
         )
 
-    return detections
+
+    # --------------------------------------------------
+    # DEDUPLICATE
+    # --------------------------------------------------
+    #
+    # If multiple boxes / preprocessing variants
+    # produce the same bib, keep the strongest one.
+    #
+
+    best_by_bib: dict[
+        str,
+        dict,
+    ] = {}
+
+
+    for detection in detections:
+        bib_number = detection[
+            "bib_number"
+        ]
+
+        existing = (
+            best_by_bib.get(
+                bib_number
+            )
+        )
+
+        if existing is None:
+            best_by_bib[
+                bib_number
+            ] = detection
+
+            continue
+
+
+        existing_score = (
+            float(
+                existing[
+                    "detection_confidence"
+                ]
+                or 0
+            )
+            *
+            float(
+                existing[
+                    "ocr_confidence"
+                ]
+                or 0
+            )
+        )
+
+        candidate_score = (
+            float(
+                detection[
+                    "detection_confidence"
+                ]
+                or 0
+            )
+            *
+            float(
+                detection[
+                    "ocr_confidence"
+                ]
+                or 0
+            )
+        )
+
+        if (
+            candidate_score
+            > existing_score
+        ):
+            best_by_bib[
+                bib_number
+            ] = detection
+
+
+    return list(
+        best_by_bib.values()
+    )

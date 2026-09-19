@@ -12,6 +12,10 @@ from app.api.routes.client_galleries import (
     router as client_galleries_router,
 )
 
+from app.api.routes.event_photo_previews import (
+    router as event_photo_previews_router,
+)
+
 from app.api.routes.event_photos import (
     router as event_photos_router,
 )
@@ -126,6 +130,10 @@ api_router.include_router(
 
 api_router.include_router(
     event_photos_router
+)
+
+api_router.include_router(
+    event_photo_previews_router
 )
 
 api_router.include_router(

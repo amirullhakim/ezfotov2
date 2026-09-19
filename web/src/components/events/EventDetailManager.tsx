@@ -34,6 +34,7 @@ import {
 } from "react"
 
 import EventProcessingCard from "@/components/events/EventProcessingCard"
+import EventPhotoPreviewButton from "@/components/events/EventPhotoPreviewButton"
 import { apiFetch } from "@/lib/api"
 
 
@@ -1968,11 +1969,20 @@ function PhotoRow({
       />
 
 
-      <p className="text-sm font-medium text-[#6F858C]">
-        {photo.preview_ready
-          ? "Ready"
-          : "Not yet"}
-      </p>
+      <EventPhotoPreviewButton
+        eventId={
+          photo.event_id
+        }
+        photoId={
+          photo.id
+        }
+        filename={
+          photo.filename
+        }
+        enabled={
+          photo.preview_ready
+        }
+      />
 
 
       <button
