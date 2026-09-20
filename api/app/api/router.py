@@ -48,6 +48,10 @@ from app.api.routes.onboarding import (
     router as onboarding_router,
 )
 
+from app.api.routes.public_event_sales import (
+    router as public_event_sales_router,
+)
+
 from app.api.routes.public_galleries import (
     router as public_galleries_router,
 )
@@ -138,4 +142,8 @@ api_router.include_router(
 
 api_router.include_router(
     event_processing_router
+)
+
+api_router.include_router(
+    public_event_sales_router
 )

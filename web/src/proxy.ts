@@ -228,9 +228,42 @@ export async function proxy(
 
 
     // ----------------------------------------------
+    // EVENT SALES
+    // ----------------------------------------------
+    //
+    // tenant.ezfotoo.com/event/kl-marathon-2026
+    //
+    // internally becomes:
+    //
+    // /site/tenant/event/kl-marathon-2026
+    //
+    if (
+      pathname.startsWith(
+        "/event/"
+      )
+    ) {
+      const url =
+        request.nextUrl.clone()
+
+      url.pathname =
+        `/site/${tenantSlug}${pathname}`
+
+      return NextResponse.rewrite(
+        url
+      )
+    }
+
+
+    // ----------------------------------------------
     // PHOTOGRAPHER WEBSITE
     // ----------------------------------------------
-
+    //
+    // tenant.ezfotoo.com/
+    //
+    // internally becomes:
+    //
+    // /site/tenant
+    //
     const url =
       request.nextUrl.clone()
 
