@@ -12,6 +12,7 @@ from sqlalchemy import (
     delete,
     select,
 )
+
 from sqlalchemy.orm import (
     Session,
 )
@@ -22,6 +23,8 @@ from app.db.session import (
 
 from app.models import (
     EventBibDetection,
+    EventFaceEmbedding,
+    EventGallery,
     EventPhoto,
     EventProcessingJob,
     Workspace,
@@ -29,6 +32,10 @@ from app.models import (
 
 from app.services.event_bib_recognition import (
     recognize_bibs,
+)
+
+from app.services.event_face_recognition import (
+    recognize_faces,
 )
 
 from app.services.event_watermark import (
@@ -46,13 +53,14 @@ PREVIEW_CONTENT_TYPE = (
     "image/jpeg"
 )
 
-SIGNED_URL_EXPIRES_SECONDS = (
-    900
-)
+SIGNED_URL_EXPIRES_SECONDS = 900
 
-NETWORK_TIMEOUT_SECONDS = (
-    120
-)
+NETWORK_TIMEOUT_SECONDS = 120
+
+
+# --------------------------------------------------
+# TIME
+# --------------------------------------------------
 
 
 def utc_now() -> datetime:
@@ -84,10 +92,12 @@ def download_private_object(
             "Unable to prepare private original download."
         ) from exc
 
+
     request = urllib.request.Request(
         url=url,
         method="GET",
     )
+
 
     try:
         with urllib.request.urlopen(
@@ -103,7 +113,8 @@ def download_private_object(
         TimeoutError,
     ) as exc:
         raise RuntimeError(
-            "Unable to download the private original from storage."
+            "Unable to download the private "
+            "original from storage."
         ) from exc
 
 
@@ -128,6 +139,7 @@ def upload_private_preview(
             "Unable to prepare private preview upload."
         ) from exc
 
+
     request = urllib.request.Request(
         url=url,
         data=content,
@@ -138,13 +150,14 @@ def upload_private_preview(
         },
     )
 
+
     try:
         with urllib.request.urlopen(
             request,
             timeout=
                 NETWORK_TIMEOUT_SECONDS,
         ) as response:
-            status_code = getattr(
+            response_status = getattr(
                 response,
                 "status",
                 200,
@@ -152,11 +165,12 @@ def upload_private_preview(
 
             if not (
                 200
-                <= status_code
+                <= response_status
                 < 300
             ):
                 raise RuntimeError(
-                    "Private preview upload was rejected."
+                    "Private preview upload "
+                    "was rejected."
                 )
 
     except (
@@ -170,7 +184,7 @@ def upload_private_preview(
 
 
 # --------------------------------------------------
-# OBJECT KEYS
+# OBJECT KEY
 # --------------------------------------------------
 
 
@@ -195,20 +209,25 @@ def preview_object_key(
 def process_photo_assets(
     photo: EventPhoto,
     brand_name: str,
+    enable_bib_search: bool,
+    enable_face_search: bool,
 ) -> tuple[
     str,
     list[dict],
+    list[dict],
 ]:
     """
-    Current AI stages:
+    Event photograph processing pipeline.
+
+    Current stages:
 
     1. Download private original.
-    2. Generate branded watermarked preview.
-    3. YOLO bib detection.
-    4. EasyOCR bib recognition.
-    5. Upload protected preview.
-
-    ArcFace is added in the next phase.
+    2. YOLO bib detection.
+    3. EasyOCR bib recognition.
+    4. Face detection.
+    5. ArcFace embeddings.
+    6. Generate protected preview.
+    7. Upload protected preview.
     """
 
     original = (
@@ -217,37 +236,54 @@ def process_photo_assets(
         )
     )
 
-    bib_detections = (
-        recognize_bibs(
+
+    if enable_bib_search:
+        bib_detections = recognize_bibs(
             original
         )
-    )
+
+    else:
+        bib_detections = []
+
+
+    if enable_face_search:
+        face_embeddings = recognize_faces(
+            original
+        )
+
+    else:
+        face_embeddings = []
+
 
     preview = (
         create_professional_watermarked_preview(
             original_bytes=
                 original,
+
             brand_name=
                 brand_name,
         )
     )
 
-    object_key = (
-        preview_object_key(
-            photo
-        )
+
+    object_key = preview_object_key(
+        photo
     )
+
 
     upload_private_preview(
         object_key=
             object_key,
+
         content=
             preview,
     )
 
+
     return (
         object_key,
         bib_detections,
+        face_embeddings,
     )
 
 
@@ -280,9 +316,11 @@ def claim_next_job(
         )
     )
 
+
     if not job:
         db.rollback()
         return None
+
 
     job.status = (
         "PROCESSING"
@@ -309,11 +347,13 @@ def claim_next_job(
         "Preparing event photos."
     )
 
+
     db.commit()
 
     db.refresh(
         job
     )
+
 
     return job
 
@@ -377,6 +417,7 @@ def get_workspace_brand(
         workspace_id,
     )
 
+
     if (
         workspace
         and workspace.name
@@ -386,6 +427,7 @@ def get_workspace_brand(
             .strip()
             or "EZFOTOO"
         )
+
 
     return "EZFOTOO"
 
@@ -422,6 +464,7 @@ def mark_job_cancelled(
         "were processed."
     )
 
+
     db.commit()
 
 
@@ -450,11 +493,12 @@ def mark_job_fatal_error(
         message[:1000]
     )
 
+
     db.commit()
 
 
 # --------------------------------------------------
-# PROCESS CLAIMED JOB
+# PROCESS JOB
 # --------------------------------------------------
 
 
@@ -467,12 +511,46 @@ def process_claimed_job(
         job,
     )
 
-    brand_name = (
-        get_workspace_brand(
-            db,
-            job.workspace_id,
-        )
+
+    event = db.get(
+        EventGallery,
+        job.event_id,
     )
+
+
+    if event is None:
+        job.status = (
+            "FAILED"
+        )
+
+        job.message = (
+            "The event linked to this "
+            "processing job no longer exists."
+        )
+
+        job.completed_at = (
+            utc_now()
+        )
+
+        db.commit()
+
+        return
+
+
+    brand_name = get_workspace_brand(
+        db,
+        job.workspace_id,
+    )
+
+
+    enable_bib_search = bool(
+        event.allow_bib_search
+    )
+
+    enable_face_search = bool(
+        event.allow_face_search
+    )
+
 
     job.total_files = len(
         photos
@@ -481,6 +559,7 @@ def process_claimed_job(
     job.processed_files = 0
     job.ready_files = 0
     job.failed_files = 0
+
 
     if not photos:
         job.status = (
@@ -497,13 +576,17 @@ def process_claimed_job(
         )
 
         db.commit()
+
         return
 
+
     db.commit()
+
 
     total = len(
         photos
     )
+
 
     for (
         index,
@@ -516,6 +599,7 @@ def process_claimed_job(
             job
         )
 
+
         if job.cancel_requested:
             mark_job_cancelled(
                 db,
@@ -524,9 +608,11 @@ def process_claimed_job(
 
             return
 
+
         db.refresh(
             photo
         )
+
 
         if (
             photo.deleted_at
@@ -540,7 +626,9 @@ def process_claimed_job(
             )
 
             db.commit()
+
             continue
+
 
         job.current_photo_id = (
             photo.id
@@ -556,6 +644,7 @@ def process_claimed_job(
             f"{photo.original_filename}"
         )
 
+
         photo.status = (
             "PROCESSING"
         )
@@ -564,21 +653,34 @@ def process_claimed_job(
             None
         )
 
+
         db.commit()
+
 
         try:
             (
                 preview_key,
                 bib_detections,
+                face_embeddings,
             ) = process_photo_assets(
                 photo=
                     photo,
+
                 brand_name=
                     brand_name,
+
+                enable_bib_search=
+                    enable_bib_search,
+
+                enable_face_search=
+                    enable_face_search,
             )
 
-            # Reprocessing remains safe:
-            # clear previous bib records first.
+
+            # ------------------------------------------
+            # CLEAR OLD AI RECORDS
+            # ------------------------------------------
+
             db.execute(
                 delete(
                     EventBibDetection
@@ -587,6 +689,21 @@ def process_claimed_job(
                     == photo.id
                 )
             )
+
+
+            db.execute(
+                delete(
+                    EventFaceEmbedding
+                ).where(
+                    EventFaceEmbedding.photo_id
+                    == photo.id
+                )
+            )
+
+
+            # ------------------------------------------
+            # BIB DETECTIONS
+            # ------------------------------------------
 
             for detection in bib_detections:
                 db.add(
@@ -642,6 +759,65 @@ def process_claimed_job(
                     )
                 )
 
+
+            # ------------------------------------------
+            # FACE EMBEDDINGS
+            # ------------------------------------------
+
+            for face in face_embeddings:
+                db.add(
+                    EventFaceEmbedding(
+                        workspace_id=
+                            photo.workspace_id,
+
+                        event_id=
+                            photo.event_id,
+
+                        photo_id=
+                            photo.id,
+
+                        face_index=
+                            face[
+                                "face_index"
+                            ],
+
+                        embedding=
+                            face[
+                                "embedding"
+                            ],
+
+                        detection_confidence=
+                            face[
+                                "detection_confidence"
+                            ],
+
+                        bbox_x1=
+                            face[
+                                "bbox_x1"
+                            ],
+
+                        bbox_y1=
+                            face[
+                                "bbox_y1"
+                            ],
+
+                        bbox_x2=
+                            face[
+                                "bbox_x2"
+                            ],
+
+                        bbox_y2=
+                            face[
+                                "bbox_y2"
+                            ],
+                    )
+                )
+
+
+            # ------------------------------------------
+            # PHOTO READY
+            # ------------------------------------------
+
             photo.preview_object_key = (
                 preview_key
             )
@@ -658,25 +834,37 @@ def process_claimed_job(
                 utc_now()
             )
 
+
             job.processed_files += 1
             job.ready_files += 1
+
 
             bib_count = len(
                 bib_detections
             )
+
+            face_count = len(
+                face_embeddings
+            )
+
 
             job.message = (
                 f"Finished "
                 f"{photo.original_filename}. "
                 f"{bib_count} bib"
                 f"{'' if bib_count == 1 else 's'} "
-                "recognized."
+                f"and {face_count} face"
+                f"{'' if face_count == 1 else 's'} "
+                "indexed."
             )
+
 
             db.commit()
 
+
         except Exception as exc:
             db.rollback()
+
 
             job = db.get(
                 EventProcessingJob,
@@ -688,11 +876,13 @@ def process_claimed_job(
                 photo.id,
             )
 
+
             if (
                 job is None
                 or photo is None
             ):
                 raise
+
 
             photo.status = (
                 "FAILED"
@@ -706,8 +896,10 @@ def process_claimed_job(
                 utc_now()
             )
 
+
             job.processed_files += 1
             job.failed_files += 1
+
 
             job.message = (
                 f"Failed to process "
@@ -715,11 +907,14 @@ def process_claimed_job(
                 "Continuing with the remaining photos."
             )
 
+
             db.commit()
+
 
     db.refresh(
         job
     )
+
 
     if job.cancel_requested:
         mark_job_cancelled(
@@ -728,6 +923,7 @@ def process_claimed_job(
         )
 
         return
+
 
     job.current_photo_id = (
         None
@@ -740,6 +936,7 @@ def process_claimed_job(
     job.completed_at = (
         utc_now()
     )
+
 
     if (
         job.failed_files
@@ -760,6 +957,7 @@ def process_claimed_job(
             "COMPLETED"
         )
 
+
         if job.failed_files > 0:
             job.message = (
                 "AI processing completed "
@@ -772,6 +970,7 @@ def process_claimed_job(
                 "AI processing completed successfully. "
                 f"{job.ready_files} photos are ready."
             )
+
 
     db.commit()
 
@@ -789,8 +988,10 @@ def run_next_processing_job() -> bool:
             db
         )
 
+
         if not job:
             return False
+
 
         print(
             (
@@ -801,6 +1002,7 @@ def run_next_processing_job() -> bool:
             flush=True,
         )
 
+
         try:
             process_claimed_job(
                 db,
@@ -810,10 +1012,12 @@ def run_next_processing_job() -> bool:
         except Exception as exc:
             db.rollback()
 
+
             failed_job = db.get(
                 EventProcessingJob,
                 job.id,
             )
+
 
             if failed_job:
                 mark_job_fatal_error(
@@ -826,6 +1030,7 @@ def run_next_processing_job() -> bool:
                     ),
                 )
 
+
             print(
                 (
                     "[AI Worker] "
@@ -835,10 +1040,12 @@ def run_next_processing_job() -> bool:
                 flush=True,
             )
 
+
         else:
             db.refresh(
                 job
             )
+
 
             print(
                 (
@@ -850,5 +1057,6 @@ def run_next_processing_job() -> bool:
                 ),
                 flush=True,
             )
+
 
         return True
