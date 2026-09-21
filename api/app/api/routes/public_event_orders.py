@@ -3,6 +3,11 @@ from __future__ import annotations
 import re
 import secrets
 
+from decimal import (
+    Decimal,
+    InvalidOperation,
+)
+
 from datetime import (
     datetime,
     timedelta,
@@ -49,6 +54,11 @@ from app.services.event_order_access import (
 from app.services.event_sales_pricing import (
     MAX_CART_PHOTOS,
     calculate_event_sales_quote,
+)
+
+from app.services.chip_payments import (
+    ChipPaymentError,
+    get_chip_purchase,
 )
 
 from app.services.private_storage import (
@@ -154,6 +164,272 @@ def cents_to_rm(
         value / 100,
         2,
     )
+
+
+def _chip_purchase_matches_order(
+    *,
+    purchase: dict,
+    order: EventOrder,
+) -> bool:
+    purchase_id = str(
+        purchase.get(
+            "id"
+        )
+        or ""
+    ).strip()
+
+    if (
+        not purchase_id
+        or purchase_id
+        != (
+            order.payment_reference
+            or ""
+        ).strip()
+    ):
+        return False
+
+    reference = str(
+        purchase.get(
+            "reference"
+        )
+        or ""
+    ).strip().upper()
+
+    if reference != order.order_number:
+        return False
+
+    purchase_details = purchase.get(
+        "purchase"
+    )
+
+    if not isinstance(
+        purchase_details,
+        dict,
+    ):
+        return False
+
+    currency = str(
+        purchase_details.get(
+            "currency"
+        )
+        or ""
+    ).strip().upper()
+
+    if currency != order.currency.upper():
+        return False
+
+    products = purchase_details.get(
+        "products"
+    )
+
+    if not isinstance(
+        products,
+        list,
+    ) or not products:
+        return False
+
+    try:
+        provider_total = Decimal(
+            "0"
+        )
+
+        for product in products:
+            if not isinstance(
+                product,
+                dict,
+            ):
+                return False
+
+            price = Decimal(
+                str(
+                    product.get(
+                        "price"
+                    )
+                )
+            )
+
+            quantity = Decimal(
+                str(
+                    product.get(
+                        "quantity",
+                        "1",
+                    )
+                )
+            )
+
+            provider_total += (
+                price
+                * quantity
+            )
+
+    except (
+        InvalidOperation,
+        TypeError,
+        ValueError,
+    ):
+        return False
+
+    return provider_total == Decimal(
+        order.total_cents
+    )
+
+
+def _get_chip_processing_transaction_id(
+    purchase: dict,
+) -> str | None:
+    transaction_data = purchase.get(
+        "transaction_data"
+    )
+
+    if not isinstance(
+        transaction_data,
+        dict,
+    ):
+        return None
+
+    direct_value = transaction_data.get(
+        "processing_tx_id"
+    )
+
+    if direct_value:
+        return str(
+            direct_value
+        )[:255]
+
+    attempts = transaction_data.get(
+        "attempts"
+    )
+
+    if not isinstance(
+        attempts,
+        list,
+    ):
+        return None
+
+    for attempt in reversed(
+        attempts
+    ):
+        if not isinstance(
+            attempt,
+            dict,
+        ):
+            continue
+
+        value = attempt.get(
+            "processing_tx_id"
+        )
+
+        if value:
+            return str(
+                value
+            )[:255]
+
+    return None
+
+
+def _reconcile_pending_chip_order(
+    *,
+    db: Session,
+    order: EventOrder,
+) -> None:
+    if order.status != "PENDING_PAYMENT":
+        return
+
+    if (
+        order.payment_provider
+        != "CHIP_FPX"
+        or not order.payment_reference
+    ):
+        return
+
+    try:
+        purchase = get_chip_purchase(
+            order.payment_reference
+        )
+
+    except ChipPaymentError:
+        # Keep the locally stored status when CHIP is
+        # temporarily unavailable. The return page can
+        # safely retry this endpoint.
+        return
+
+    if not _chip_purchase_matches_order(
+        purchase=purchase,
+        order=order,
+    ):
+        # Never mutate the order when the provider
+        # response does not match the exact order,
+        # currency and amount stored by EZFOTOO.
+        return
+
+    chip_status = str(
+        purchase.get(
+            "status"
+        )
+        or ""
+    ).strip().lower()
+
+    new_status: str | None = None
+
+    if chip_status == "paid":
+        new_status = "PAID"
+
+    elif chip_status == "error":
+        # Observed CHIP Test Failure status.
+        new_status = "PAYMENT_FAILED"
+
+    elif chip_status in {
+        "cancelled",
+        "canceled",
+    }:
+        new_status = "CANCELLED"
+
+    elif chip_status == "expired":
+        new_status = "EXPIRED"
+
+    if new_status is None:
+        return
+
+    order.status = new_status
+
+    provider_transaction_id = (
+        _get_chip_processing_transaction_id(
+            purchase
+        )
+    )
+
+    if (
+        provider_transaction_id
+        and not order.provider_transaction_id
+    ):
+        order.provider_transaction_id = (
+            provider_transaction_id
+        )
+
+    if (
+        new_status == "PAID"
+        and order.paid_at is None
+    ):
+        order.paid_at = datetime.now(
+            timezone.utc
+        )
+
+    try:
+        db.commit()
+        db.refresh(
+            order
+        )
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Unable to reconcile the payment status."
+            ),
+        )
 
 
 def generate_order_number(
@@ -521,6 +797,11 @@ def get_public_event_order_status(
             detail=
                 "Order not found.",
         )
+
+    _reconcile_pending_chip_order(
+        db=db,
+        order=order,
+    )
 
     return {
         "order": {
