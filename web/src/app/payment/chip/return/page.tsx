@@ -1,55 +1,530 @@
+"use client"
+
 import Link from "next/link"
 
 import {
   CheckCircle2,
   Clock3,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
   XCircle,
 } from "lucide-react"
 
-
-type SearchParams = Promise<{
-  result?: string
-  order?: string
-}>
-
-
-export default async function ChipReturnPage({
-  searchParams,
-}: {
-  searchParams: SearchParams
-}) {
-  const params =
-    await searchParams
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react"
 
 
-  const result =
-    params.result
-    || "pending"
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL
+  || "http://localhost:8000"
+).replace(
+  /\/+$/,
+  ""
+)
 
 
-  const orderNumber =
-    params.order
-    || ""
+const ORDER_ACCESS_STORAGE_PREFIX =
+  "ezfotoo:event-order-access:"
 
 
-  const success =
-    result === "success"
+const ORDER_RETURN_PATH_STORAGE_PREFIX =
+  "ezfotoo:event-order-return:"
 
 
-  const failure =
-    result === "failure"
+const MAX_STATUS_ATTEMPTS = 12
+const STATUS_RETRY_DELAY_MS = 1500
 
+
+type OrderStatusResponse = {
+  order: {
+    order_number: string
+    status: string
+    currency: string
+    item_count: number
+    total_cents: number
+    total_rm: number
+    paid_at: string | null
+    expires_at: string | null
+  }
+}
+
+
+type VerificationState =
+  | "loading"
+  | "paid"
+  | "pending"
+  | "failed"
+  | "cancelled"
+  | "expired"
+  | "refunded"
+  | "unavailable"
+  | "error"
+
+
+function orderAccessStorageKey(
+  orderNumber: string
+) {
+  return (
+    `${ORDER_ACCESS_STORAGE_PREFIX}${orderNumber}`
+  )
+}
+
+
+function orderReturnPathStorageKey(
+  orderNumber: string
+) {
+  return (
+    `${ORDER_RETURN_PATH_STORAGE_PREFIX}${orderNumber}`
+  )
+}
+
+
+function stateFromOrderStatus(
+  status: string
+): VerificationState {
+  switch (
+    status
+      .trim()
+      .toUpperCase()
+  ) {
+    case "PAID":
+      return "paid"
+
+    case "PAYMENT_FAILED":
+      return "failed"
+
+    case "CANCELLED":
+      return "cancelled"
+
+    case "EXPIRED":
+      return "expired"
+
+    case "REFUNDED":
+      return "refunded"
+
+    default:
+      return "pending"
+  }
+}
+
+
+export default function ChipReturnPage() {
+  const [
+    orderNumber,
+    setOrderNumber,
+  ] = useState(
+    ""
+  )
+
+  const [
+    returnPath,
+    setReturnPath,
+  ] = useState(
+    "/"
+  )
+
+  const [
+    verificationState,
+    setVerificationState,
+  ] = useState<VerificationState>(
+    "loading"
+  )
+
+  const [
+    order,
+    setOrder,
+  ] = useState<OrderStatusResponse["order"] | null>(
+    null
+  )
+
+  const [
+    errorMessage,
+    setErrorMessage,
+  ] = useState(
+    ""
+  )
+
+  const [
+    retryNonce,
+    setRetryNonce,
+  ] = useState(
+    0
+  )
+
+
+  const fetchOrderStatus =
+    useCallback(
+      async (
+        currentOrderNumber: string,
+        accessToken: string
+      ) => {
+        const response =
+          await fetch(
+            `${API_URL}/api/public/events/orders/${encodeURIComponent(
+              currentOrderNumber
+            )}/status`,
+            {
+              method:
+                "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body:
+                JSON.stringify({
+                  access_token:
+                    accessToken,
+                }),
+
+              cache:
+                "no-store",
+            }
+          )
+
+
+        const payload =
+          (
+            await response.json()
+          ) as (
+            OrderStatusResponse
+            | {
+                detail?: string
+              }
+          )
+
+
+        if (!response.ok) {
+          throw new Error(
+            "detail" in payload
+              && payload.detail
+              ? payload.detail
+              : "Unable to verify this order."
+          )
+        }
+
+
+        return (
+          payload as OrderStatusResponse
+        )
+      },
+      []
+    )
+
+
+  useEffect(
+    () => {
+      const params =
+        new URLSearchParams(
+          window.location.search
+        )
+
+
+      const currentOrderNumber =
+        (
+          params.get(
+            "order"
+          )
+          || ""
+        )
+          .trim()
+          .toUpperCase()
+
+
+      setOrderNumber(
+        currentOrderNumber
+      )
+
+
+      if (!currentOrderNumber) {
+        setVerificationState(
+          "error"
+        )
+
+        setErrorMessage(
+          "The payment return did not include an order number."
+        )
+
+        return
+      }
+
+
+      let accessToken = ""
+
+
+      try {
+        accessToken =
+          window.sessionStorage.getItem(
+            orderAccessStorageKey(
+              currentOrderNumber
+            )
+          )
+          || ""
+
+
+        const storedReturnPath =
+          window.sessionStorage.getItem(
+            orderReturnPathStorageKey(
+              currentOrderNumber
+            )
+          )
+
+
+        if (
+          storedReturnPath
+          && storedReturnPath.startsWith(
+            "/"
+          )
+          && !storedReturnPath.startsWith(
+            "//"
+          )
+        ) {
+          setReturnPath(
+            storedReturnPath
+          )
+        }
+
+      } catch {
+        accessToken = ""
+      }
+
+
+      if (!accessToken) {
+        setVerificationState(
+          "unavailable"
+        )
+
+        return
+      }
+
+
+      let active = true
+
+
+      async function verify() {
+        setErrorMessage(
+          ""
+        )
+
+        setVerificationState(
+          "loading"
+        )
+
+
+        for (
+          let attempt = 0;
+          attempt < MAX_STATUS_ATTEMPTS;
+          attempt += 1
+        ) {
+          try {
+            const result =
+              await fetchOrderStatus(
+                currentOrderNumber,
+                accessToken
+              )
+
+
+            if (!active) {
+              return
+            }
+
+
+            setOrder(
+              result.order
+            )
+
+
+            const nextState =
+              stateFromOrderStatus(
+                result.order.status
+              )
+
+
+            setVerificationState(
+              nextState
+            )
+
+
+            if (
+              nextState !== "pending"
+            ) {
+              return
+            }
+
+
+          } catch (
+            error
+          ) {
+            if (!active) {
+              return
+            }
+
+
+            setVerificationState(
+              "error"
+            )
+
+            setErrorMessage(
+              error instanceof Error
+                ? error.message
+                : "Unable to verify this payment."
+            )
+
+            return
+          }
+
+
+          if (
+            attempt
+            < MAX_STATUS_ATTEMPTS - 1
+          ) {
+            await new Promise(
+              (
+                resolve
+              ) => {
+                window.setTimeout(
+                  resolve,
+                  STATUS_RETRY_DELAY_MS
+                )
+              }
+            )
+          }
+        }
+
+
+        if (active) {
+          setVerificationState(
+            "pending"
+          )
+        }
+      }
+
+
+      void verify()
+
+
+      return () => {
+        active = false
+      }
+    },
+    [
+      fetchOrderStatus,
+      retryNonce,
+    ]
+  )
+
+
+  const paid =
+    verificationState === "paid"
+
+  const pending =
+    verificationState === "pending"
+
+  const loading =
+    verificationState === "loading"
+
+  const unavailable =
+    verificationState === "unavailable"
+
+  const failed =
+    verificationState === "failed"
 
   const cancelled =
-    result === "cancelled"
+    verificationState === "cancelled"
+
+  const expired =
+    verificationState === "expired"
+
+  const refunded =
+    verificationState === "refunded"
+
+  const error =
+    verificationState === "error"
+
+
+  const negative =
+    failed
+    || cancelled
+    || expired
+
+
+  let title =
+    "Confirming payment"
+
+  let description =
+    "We are securely checking the payment status for your order."
+
+
+  if (paid) {
+    title =
+      "Payment successful"
+
+    description =
+      "Your payment has been securely confirmed. Your purchased photos will be available from your order."
+
+  } else if (pending) {
+    title =
+      "Payment is being confirmed"
+
+    description =
+      "The payment provider has returned you to EZFOTOO, but confirmation is still processing. You can check again in a moment."
+
+  } else if (failed) {
+    title =
+      "Payment was not completed"
+
+    description =
+      "The payment provider reported that this transaction was unsuccessful."
+
+  } else if (cancelled) {
+    title =
+      "Payment cancelled"
+
+    description =
+      "No completed payment was confirmed for this order."
+
+  } else if (expired) {
+    title =
+      "Order expired"
+
+    description =
+      "The payment reservation for this order has expired."
+
+  } else if (refunded) {
+    title =
+      "Payment refunded"
+
+    description =
+      "This order has been marked as refunded."
+
+  } else if (unavailable) {
+    title =
+      "Order verification unavailable"
+
+    description =
+      "This browser session does not have the secure order access needed to verify the payment. Return to the gallery where you started the checkout."
+
+  } else if (error) {
+    title =
+      "Unable to verify payment"
+
+    description =
+      errorMessage
+      || "We could not verify the payment status right now."
+  }
 
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#F7FAFB] px-5">
+    <main className="flex min-h-screen items-center justify-center bg-[#F7FAFB] px-5 py-10">
 
-      <div className="w-full max-w-[520px] rounded-[28px] border border-[#DCE8EA] bg-white p-8 text-center shadow-[0_18px_55px_rgba(8,47,60,0.08)]">
+      <div className="w-full max-w-[540px] rounded-[28px] border border-[#DCE8EA] bg-white p-8 text-center shadow-[0_18px_55px_rgba(8,47,60,0.08)] sm:p-9">
 
-        {success ? (
+        {paid ? (
 
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#E7F8F3]">
 
@@ -57,7 +532,19 @@ export default async function ChipReturnPage({
 
           </div>
 
-        ) : failure || cancelled ? (
+        ) : loading || pending ? (
+
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#EEF7F8]">
+
+            {loading ? (
+              <Loader2 className="h-8 w-8 animate-spin text-[#168792]" />
+            ) : (
+              <Clock3 className="h-8 w-8 text-[#168792]" />
+            )}
+
+          </div>
+
+        ) : negative ? (
 
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#FFF1F2]">
 
@@ -65,11 +552,19 @@ export default async function ChipReturnPage({
 
           </div>
 
+        ) : refunded ? (
+
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#EEF7F8]">
+
+            <RefreshCw className="h-7 w-7 text-[#168792]" />
+
+          </div>
+
         ) : (
 
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#EEF7F8]">
 
-            <Clock3 className="h-8 w-8 text-[#168792]" />
+            <ShieldCheck className="h-8 w-8 text-[#168792]" />
 
           </div>
 
@@ -82,42 +577,118 @@ export default async function ChipReturnPage({
 
 
         <h1 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#173D47]">
-
-          {success
-            ? "Payment submitted"
-            : cancelled
-              ? "Payment cancelled"
-              : failure
-                ? "Payment was not completed"
-                : "Payment processing"}
-
+          {title}
         </h1>
 
 
-        <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-[#74878E]">
-
-          {success
-            ? "We received your return from the payment page. Your order will be released once the payment is confirmed securely."
-            : cancelled
-              ? "No payment was completed. You can return to the gallery and try again."
-              : failure
-                ? "The FPX transaction was not completed. You can try again from your order."
-                : "We are waiting for the payment status to be confirmed."}
-
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#74878E]">
+          {description}
         </p>
 
 
         {orderNumber && (
 
-          <div className="mt-6 rounded-[16px] border border-[#DDE8EA] bg-[#F8FBFB] px-4 py-4">
+          <div className="mt-6 rounded-[18px] border border-[#DDE8EA] bg-[#F8FBFB] p-5 text-left">
 
-            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#8A9A9F]">
-              Order number
-            </p>
+            <div>
+
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#8A9A9F]">
+                Order number
+              </p>
 
 
-            <p className="mt-1 font-mono text-sm font-semibold text-[#294E57]">
-              {orderNumber}
+              <p className="mt-1 break-all font-mono text-sm font-semibold text-[#294E57]">
+                {orderNumber}
+              </p>
+
+            </div>
+
+
+            {order && (
+
+              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-[#DFE9EB] pt-5">
+
+                <div>
+
+                  <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#8A9A9F]">
+                    Photos
+                  </p>
+
+
+                  <p className="mt-1 text-sm font-semibold text-[#355B65]">
+                    {order.item_count}
+                  </p>
+
+                </div>
+
+
+                <div>
+
+                  <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#8A9A9F]">
+                    Status
+                  </p>
+
+
+                  <p
+                    className={
+                      paid
+                        ? "mt-1 text-sm font-semibold text-[#16856F]"
+                        : negative
+                          ? "mt-1 text-sm font-semibold text-[#AD5660]"
+                          : "mt-1 text-sm font-semibold text-[#B17A21]"
+                    }
+                  >
+                    {order.status.replaceAll(
+                      "_",
+                      " "
+                    )}
+                  </p>
+
+                </div>
+
+
+                <div className="col-span-2 border-t border-[#DFE9EB] pt-4">
+
+                  <div className="flex items-end justify-between gap-4">
+
+                    <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#8A9A9F]">
+                      Total
+                    </p>
+
+
+                    <p className="text-2xl font-semibold tracking-[-0.035em] text-[#123D48]">
+
+                      RM
+                      {order
+                        .total_rm
+                        .toFixed(
+                          2
+                        )}
+
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            )}
+
+          </div>
+
+        )}
+
+
+        {paid && (
+
+          <div className="mt-4 flex items-start gap-3 rounded-[16px] border border-[#D7E8E9] bg-[#F5FAFA] px-4 py-3 text-left">
+
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#16856F]" />
+
+
+            <p className="text-xs leading-5 text-[#56757D]">
+              Payment verified securely by EZFOTOO.
             </p>
 
           </div>
@@ -125,12 +696,43 @@ export default async function ChipReturnPage({
         )}
 
 
+        {(pending || error) && (
+
+          <button
+            type="button"
+            onClick={() => {
+              setRetryNonce(
+                (
+                  current
+                ) =>
+                  current + 1
+              )
+            }}
+            className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#D4E2E5] bg-white text-sm font-semibold text-[#45666F] transition hover:bg-[#F6FAFA]"
+          >
+            <RefreshCw className="h-4 w-4" />
+
+            Check payment again
+          </button>
+
+        )}
+
+
         <Link
-          href="/"
-          className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363]"
+          href={
+            returnPath
+          }
+          className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363]"
         >
-          Return to EZFOTOO
+          {paid
+            ? "Return to event gallery"
+            : "Return to EZFOTOO"}
         </Link>
+
+
+        <p className="mt-4 text-[10px] leading-4 text-[#98A6AA]">
+          The browser return result is not used as payment proof. EZFOTOO displays the status stored by the verified server-side payment flow.
+        </p>
 
       </div>
 

@@ -42,6 +42,7 @@ from app.models import (
 
 from app.services.event_order_access import (
     create_event_order_access_token,
+    verify_event_order_access_token,
 )
 
 from app.services.event_sales_pricing import (
@@ -128,6 +129,15 @@ class PublicCreateOrderRequest(
             )
 
         return cleaned
+
+
+class PublicOrderStatusRequest(
+    BaseModel
+):
+    access_token: str = Field(
+        min_length=16,
+        max_length=2048,
+    )
 
 
 def cents_to_rm(
@@ -442,4 +452,73 @@ def create_public_event_order(
             "message":
                 "FPX payment is ready.",
         },
+    }
+@router.post(
+    "/orders/{order_number}/status",
+)
+def get_public_event_order_status(
+    order_number: str,
+    payload: PublicOrderStatusRequest,
+
+    db: Session = Depends(
+        get_db
+    ),
+):
+    cleaned_order_number = (
+        order_number
+        .strip()
+        .upper()
+    )
+
+    order = db.scalar(
+        select(
+            EventOrder
+        ).where(
+            EventOrder.order_number
+            == cleaned_order_number
+        )
+    )
+
+    if (
+        order is None
+        or not verify_event_order_access_token(
+            order_id=order.id,
+            token=payload.access_token,
+        )
+    ):
+        raise HTTPException(
+            status_code=
+                status.HTTP_404_NOT_FOUND,
+            detail=
+                "Order not found.",
+        )
+
+    return {
+        "order": {
+            "order_number":
+                order.order_number,
+
+            "status":
+                order.status,
+
+            "currency":
+                order.currency,
+
+            "item_count":
+                order.item_count,
+
+            "total_cents":
+                order.total_cents,
+
+            "total_rm":
+                cents_to_rm(
+                    order.total_cents
+                ),
+
+            "paid_at":
+                order.paid_at,
+
+            "expires_at":
+                order.expires_at,
+        }
     }

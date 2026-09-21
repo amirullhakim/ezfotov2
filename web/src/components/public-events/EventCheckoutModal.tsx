@@ -32,6 +32,32 @@ const API_URL = (
 )
 
 
+const ORDER_ACCESS_STORAGE_PREFIX =
+  "ezfotoo:event-order-access:"
+
+
+const ORDER_RETURN_PATH_STORAGE_PREFIX =
+  "ezfotoo:event-order-return:"
+
+
+function orderAccessStorageKey(
+  orderNumber: string
+) {
+  return (
+    `${ORDER_ACCESS_STORAGE_PREFIX}${orderNumber}`
+  )
+}
+
+
+function orderReturnPathStorageKey(
+  orderNumber: string
+) {
+  return (
+    `${ORDER_RETURN_PATH_STORAGE_PREFIX}${orderNumber}`
+  )
+}
+
+
 type CreateOrderResponse = {
   order: {
     id: string
@@ -281,6 +307,27 @@ export default function EventCheckoutModal({
 
       const result =
         payload as CreateOrderResponse
+
+
+      try {
+        window.sessionStorage.setItem(
+          orderAccessStorageKey(
+            result.order.order_number
+          ),
+          result.access.token
+        )
+
+        window.sessionStorage.setItem(
+          orderReturnPathStorageKey(
+            result.order.order_number
+          ),
+          `${window.location.pathname}${window.location.search}`
+        )
+      } catch {
+        // Payment can still continue if browser storage is unavailable.
+        // The return page simply will not be able to verify the order
+        // automatically in that browser session.
+      }
 
 
       setCreatedOrder(
