@@ -185,6 +185,46 @@ export default function EventCheckoutModal({
   )
 
 
+  const quotePhotoSubtotalRm =
+    quote
+      ? Math.max(
+          quote.pricing.regular_subtotal_rm
+          - quote.pricing.savings_rm,
+          0
+        )
+      : 0
+
+
+  const quoteServiceFeeRm =
+    quote
+      ? Math.max(
+          quote.pricing.total_rm
+          - quotePhotoSubtotalRm,
+          0
+        )
+      : 0
+
+
+  const createdPhotoSubtotalRm =
+    createdOrder
+      ? Math.max(
+          createdOrder.pricing.regular_subtotal_rm
+          - createdOrder.pricing.discount_rm,
+          0
+        )
+      : 0
+
+
+  const createdServiceFeeRm =
+    createdOrder
+      ? Math.max(
+          createdOrder.pricing.total_rm
+          - createdPhotoSubtotalRm,
+          0
+        )
+      : 0
+
+
   if (!open) {
     return null
   }
@@ -545,47 +585,64 @@ export default function EventCheckoutModal({
 
               <div className="mt-5 border-t border-[#DDE8EA] pt-5">
 
-                <div className="flex items-end justify-between gap-4">
+                <div className="space-y-2.5 text-sm">
 
-                  <div>
+                  {createdOrder.pricing.discount_rm > 0 ? (
+                    <>
+                      <div className="flex justify-between text-[#74878E]">
+                        <span>Regular price</span>
+                        <span>
+                          RM
+                          {createdOrder.pricing.regular_subtotal_rm.toFixed(2)}
+                        </span>
+                      </div>
 
-                    <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#8A9A9F]">
-                      Total
-                    </p>
+                      <div className="flex justify-between font-semibold text-[#16856F]">
+                        <span>Bundle savings</span>
+                        <span>
+                          − RM
+                          {createdOrder.pricing.discount_rm.toFixed(2)}
+                        </span>
+                      </div>
 
-
-                    {createdOrder.pricing.discount_rm > 0 && (
-
-                      <p className="mt-1 text-xs font-medium text-[#16856F]">
-
+                      <div className="flex justify-between text-[#61777E]">
+                        <span>Photo subtotal</span>
+                        <span>
+                          RM
+                          {createdPhotoSubtotalRm.toFixed(2)}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between text-[#61777E]">
+                      <span>Photos</span>
+                      <span>
                         RM
-                        {createdOrder
-                          .pricing
-                          .discount_rm
-                          .toFixed(
-                            2
-                          )}
-                        {" "}
-                        saved
+                        {createdPhotoSubtotalRm.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
 
-                      </p>
-
-                    )}
-
+                  <div className="flex justify-between text-[#74878E]">
+                    <span>Service fee</span>
+                    <span>
+                      RM
+                      {createdServiceFeeRm.toFixed(2)}
+                    </span>
                   </div>
 
+                  <div className="border-t border-[#DDE8EA] pt-3">
+                    <div className="flex items-end justify-between gap-4">
+                      <p className="font-semibold text-[#49656D]">
+                        Total
+                      </p>
 
-                  <p className="text-2xl font-semibold tracking-[-0.035em] text-[#123D48]">
-
-                    RM
-                    {createdOrder
-                      .pricing
-                      .total_rm
-                      .toFixed(
-                        2
-                      )}
-
-                  </p>
+                      <p className="text-2xl font-semibold tracking-[-0.035em] text-[#123D48]">
+                        RM
+                        {createdOrder.pricing.total_rm.toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
 
                 </div>
 
@@ -840,77 +897,61 @@ export default function EventCheckoutModal({
 
               <div className="mt-4 space-y-2.5 text-sm">
 
-                <div className="flex justify-between text-[#74878E]">
+                {quote.pricing.savings_rm > 0 ? (
+                  <>
+                    <div className="flex justify-between text-[#74878E]">
+                      <span>Regular price</span>
+                      <span>
+                        RM
+                        {quote.pricing.regular_subtotal_rm.toFixed(2)}
+                      </span>
+                    </div>
 
-                  <span>
-                    Regular price
-                  </span>
+                    <div className="flex justify-between font-semibold text-[#16856F]">
+                      <span>Bundle savings</span>
+                      <span>
+                        − RM
+                        {quote.pricing.savings_rm.toFixed(2)}
+                      </span>
+                    </div>
 
-
-                  <span>
-
-                    RM
-                    {quote
-                      .pricing
-                      .regular_subtotal_rm
-                      .toFixed(
-                        2
-                      )}
-
-                  </span>
-
-                </div>
-
-
-                {quote.pricing.savings_rm > 0 && (
-
-                  <div className="flex justify-between font-semibold text-[#16856F]">
-
+                    <div className="flex justify-between text-[#61777E]">
+                      <span>Photo subtotal</span>
+                      <span>
+                        RM
+                        {quotePhotoSubtotalRm.toFixed(2)}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between text-[#61777E]">
+                    <span>Photos</span>
                     <span>
-                      Bundle savings
+                      RM
+                      {quotePhotoSubtotalRm.toFixed(2)}
                     </span>
-
-
-                    <span>
-
-                      − RM
-                      {quote
-                        .pricing
-                        .savings_rm
-                        .toFixed(
-                          2
-                        )}
-
-                    </span>
-
                   </div>
-
                 )}
 
+                <div className="flex justify-between text-[#74878E]">
+                  <span>Service fee</span>
+                  <span>
+                    RM
+                    {quoteServiceFeeRm.toFixed(2)}
+                  </span>
+                </div>
 
                 <div className="border-t border-[#DCE7E9] pt-3">
-
                   <div className="flex items-end justify-between">
-
                     <span className="font-semibold text-[#49656D]">
                       Total
                     </span>
 
-
                     <span className="text-2xl font-semibold tracking-[-0.035em] text-[#123D48]">
-
                       RM
-                      {quote
-                        .pricing
-                        .total_rm
-                        .toFixed(
-                          2
-                        )}
-
+                      {quote.pricing.total_rm.toFixed(2)}
                     </span>
-
                   </div>
-
                 </div>
 
               </div>

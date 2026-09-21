@@ -49,8 +49,20 @@ class EventOrder(TimestampMixin, Base):
             name="ck_event_orders_discount_nonnegative",
         ),
         CheckConstraint(
+            "photo_subtotal_cents >= 0",
+            name="ck_event_orders_photo_subtotal_nonnegative",
+        ),
+        CheckConstraint(
+            "service_fee_cents >= 0",
+            name="ck_event_orders_service_fee_nonnegative",
+        ),
+        CheckConstraint(
             "total_cents >= 0",
             name="ck_event_orders_total_nonnegative",
+        ),
+        CheckConstraint(
+            "total_cents = photo_subtotal_cents + service_fee_cents",
+            name="ck_event_orders_total_matches_breakdown",
         ),
         CheckConstraint(
             "bundle_quantity >= 0",
@@ -189,6 +201,17 @@ class EventOrder(TimestampMixin, Base):
     )
 
     discount_cents: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    photo_subtotal_cents: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    service_fee_cents: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         default=0,

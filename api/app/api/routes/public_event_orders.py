@@ -315,6 +315,12 @@ def create_public_event_order(
             discount_cents=
                 quote.discount_cents,
 
+            photo_subtotal_cents=
+                quote.photo_subtotal_cents,
+
+            service_fee_cents=
+                quote.service_fee_cents,
+
             total_cents=
                 quote.total_cents,
 
@@ -437,6 +443,22 @@ def create_public_event_order(
                     order.discount_cents
                 ),
 
+            "photo_subtotal_cents":
+                order.photo_subtotal_cents,
+
+            "photo_subtotal_rm":
+                cents_to_rm(
+                    order.photo_subtotal_cents
+                ),
+
+            "service_fee_cents":
+                order.service_fee_cents,
+
+            "service_fee_rm":
+                cents_to_rm(
+                    order.service_fee_cents
+                ),
+
             "total_cents":
                 order.total_cents,
 
@@ -513,6 +535,22 @@ def get_public_event_order_status(
 
             "item_count":
                 order.item_count,
+
+            "photo_subtotal_cents":
+                order.photo_subtotal_cents,
+
+            "photo_subtotal_rm":
+                cents_to_rm(
+                    order.photo_subtotal_cents
+                ),
+
+            "service_fee_cents":
+                order.service_fee_cents,
+
+            "service_fee_rm":
+                cents_to_rm(
+                    order.service_fee_cents
+                ),
 
             "total_cents":
                 order.total_cents,
@@ -690,6 +728,22 @@ def get_public_event_order_downloads(
 
             "item_count":
                 order.item_count,
+
+            "photo_subtotal_cents":
+                order.photo_subtotal_cents,
+
+            "photo_subtotal_rm":
+                cents_to_rm(
+                    order.photo_subtotal_cents
+                ),
+
+            "service_fee_cents":
+                order.service_fee_cents,
+
+            "service_fee_rm":
+                cents_to_rm(
+                    order.service_fee_cents
+                ),
 
             "total_cents":
                 order.total_cents,

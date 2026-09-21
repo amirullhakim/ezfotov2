@@ -98,6 +98,26 @@ export default function EventCartDrawer({
   }
 
 
+  const photoSubtotalRm =
+    quote
+      ? Math.max(
+          quote.pricing.regular_subtotal_rm
+          - quote.pricing.savings_rm,
+          0
+        )
+      : 0
+
+
+  const serviceFeeRm =
+    quote
+      ? Math.max(
+          quote.pricing.total_rm
+          - photoSubtotalRm,
+          0
+        )
+      : 0
+
+
   return (
     <div className="fixed inset-0 z-[120]">
 
@@ -300,48 +320,98 @@ export default function EventCartDrawer({
 
                 <div className="space-y-2.5 text-sm">
 
+                  {quote.pricing.savings_rm > 0 ? (
+                    <>
+                      <div className="flex justify-between text-[#72858B]">
+
+                        <span>
+                          Regular price
+                        </span>
+
+
+                        <span>
+                          RM
+                          {quote
+                            .pricing
+                            .regular_subtotal_rm
+                            .toFixed(
+                              2
+                            )}
+                        </span>
+
+                      </div>
+
+
+                      <div className="flex justify-between font-semibold text-[#16856F]">
+
+                        <span>
+                          Bundle savings
+                        </span>
+
+
+                        <span>
+                          − RM
+                          {quote
+                            .pricing
+                            .savings_rm
+                            .toFixed(
+                              2
+                            )}
+                        </span>
+
+                      </div>
+
+
+                      <div className="flex justify-between text-[#61777E]">
+
+                        <span>
+                          Photo subtotal
+                        </span>
+
+
+                        <span>
+                          RM
+                          {photoSubtotalRm.toFixed(
+                            2
+                          )}
+                        </span>
+
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between text-[#61777E]">
+
+                      <span>
+                        Photos
+                      </span>
+
+
+                      <span>
+                        RM
+                        {photoSubtotalRm.toFixed(
+                          2
+                        )}
+                      </span>
+
+                    </div>
+                  )}
+
+
                   <div className="flex justify-between text-[#72858B]">
 
                     <span>
-                      Regular price
+                      Service fee
                     </span>
 
 
                     <span>
                       RM
-                      {quote
-                        .pricing
-                        .regular_subtotal_rm
-                        .toFixed(
-                          2
-                        )}
+                      {serviceFeeRm.toFixed(
+                        2
+                      )}
                     </span>
 
                   </div>
-
-
-                  {quote.pricing.savings_rm > 0 && (
-
-                    <div className="flex justify-between font-semibold text-[#16856F]">
-
-                      <span>
-                        Bundle savings
-                      </span>
-
-
-                      <span>
-                        − RM
-                        {quote
-                          .pricing
-                          .savings_rm
-                          .toFixed(
-                            2
-                          )}
-                      </span>
-
-                    </div>
-
-                  )}
 
 
                   <div className="my-3 border-t border-[#E2EAEC]" />

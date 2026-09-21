@@ -14,6 +14,10 @@ from app.models import (
 
 MAX_CART_PHOTOS = 100
 
+# MVP service fee charged once per order.
+# We will move this into the future pricing-plan system later.
+EVENT_SALES_SERVICE_FEE_CENTS = 200
+
 
 @dataclass
 class EventSalesQuote:
@@ -25,6 +29,8 @@ class EventSalesQuote:
     regular_subtotal_cents: int
 
     discount_cents: int
+    photo_subtotal_cents: int
+    service_fee_cents: int
     total_cents: int
 
     bundle_configured: bool
@@ -272,21 +278,40 @@ def calculate_event_sales_quote(
 
 
     if bundle_beneficial:
-        total_cents = (
+        photo_subtotal_cents = (
             bundle_total_cents
             + remainder_total_cents
         )
 
     else:
-        total_cents = (
+        photo_subtotal_cents = (
             regular_subtotal_cents
         )
 
 
     discount_cents = max(
         regular_subtotal_cents
-        - total_cents,
+        - photo_subtotal_cents,
         0,
+    )
+
+
+    # --------------------------------------------------
+    # SERVICE FEE
+    # --------------------------------------------------
+    #
+    # The fee is charged once per order, after bundle
+    # pricing has been applied to the photo subtotal.
+    #
+
+    service_fee_cents = (
+        EVENT_SALES_SERVICE_FEE_CENTS
+    )
+
+
+    total_cents = (
+        photo_subtotal_cents
+        + service_fee_cents
     )
 
 
@@ -305,6 +330,12 @@ def calculate_event_sales_quote(
 
         discount_cents=
             discount_cents,
+
+        photo_subtotal_cents=
+            photo_subtotal_cents,
+
+        service_fee_cents=
+            service_fee_cents,
 
         total_cents=
             total_cents,
