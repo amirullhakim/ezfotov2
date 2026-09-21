@@ -5,6 +5,8 @@ import Link from "next/link"
 import {
   CheckCircle2,
   Clock3,
+  Download,
+  FileImage,
   Loader2,
   RefreshCw,
   ShieldCheck,
@@ -49,6 +51,30 @@ type OrderStatusResponse = {
     total_rm: number
     paid_at: string | null
     expires_at: string | null
+  }
+}
+
+
+type OrderDownloadsResponse = {
+  order: {
+    order_number: string
+    status: string
+    currency: string
+    item_count: number
+    total_cents: number
+    total_rm: number
+  }
+
+  downloads: {
+    expires_in_seconds: number
+    expires_at: string
+    items: Array<{
+      photo_id: string
+      filename: string
+      content_type: string
+      size_bytes: number
+      download_url: string
+    }>
   }
 }
 
@@ -112,6 +138,27 @@ function stateFromOrderStatus(
 }
 
 
+function formatBytes(
+  value: number
+) {
+  if (value < 1024) {
+    return `${value} B`
+  }
+
+  const kilobytes =
+    value / 1024
+
+  if (kilobytes < 1024) {
+    return `${kilobytes.toFixed(1)} KB`
+  }
+
+  const megabytes =
+    kilobytes / 1024
+
+  return `${megabytes.toFixed(1)} MB`
+}
+
+
 export default function ChipReturnPage() {
   const [
     orderNumber,
@@ -151,6 +198,42 @@ export default function ChipReturnPage() {
   const [
     retryNonce,
     setRetryNonce,
+  ] = useState(
+    0
+  )
+
+
+  const [
+    accessToken,
+    setAccessToken,
+  ] = useState(
+    ""
+  )
+
+  const [
+    downloads,
+    setDownloads,
+  ] = useState<OrderDownloadsResponse["downloads"] | null>(
+    null
+  )
+
+  const [
+    downloadsLoading,
+    setDownloadsLoading,
+  ] = useState(
+    false
+  )
+
+  const [
+    downloadsError,
+    setDownloadsError,
+  ] = useState(
+    ""
+  )
+
+  const [
+    downloadRefreshNonce,
+    setDownloadRefreshNonce,
   ] = useState(
     0
   )
@@ -303,6 +386,11 @@ export default function ChipReturnPage() {
       }
 
 
+      setAccessToken(
+        accessToken
+      )
+
+
       let active = true
 
 
@@ -453,6 +541,133 @@ export default function ChipReturnPage() {
     || expired
 
 
+  useEffect(
+    () => {
+      if (
+        !paid
+        || !orderNumber
+        || !accessToken
+      ) {
+        return
+      }
+
+
+      let active = true
+
+
+      async function loadDownloads() {
+        setDownloadsLoading(
+          true
+        )
+
+        setDownloadsError(
+          ""
+        )
+
+
+        try {
+          const response =
+            await fetch(
+              `${API_URL}/api/public/events/orders/${encodeURIComponent(
+                orderNumber
+              )}/downloads`,
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    access_token:
+                      accessToken,
+                  }),
+
+                cache:
+                  "no-store",
+              }
+            )
+
+
+          const payload =
+            (
+              await response.json()
+            ) as (
+              OrderDownloadsResponse
+              | {
+                  detail?: string
+                }
+            )
+
+
+          if (!response.ok) {
+            throw new Error(
+              "detail" in payload
+                && payload.detail
+                ? payload.detail
+                : "Unable to prepare your photo downloads."
+            )
+          }
+
+
+          if (!active) {
+            return
+          }
+
+
+          setDownloads(
+            (
+              payload as OrderDownloadsResponse
+            ).downloads
+          )
+
+        } catch (
+          error
+        ) {
+          if (!active) {
+            return
+          }
+
+
+          setDownloads(
+            null
+          )
+
+          setDownloadsError(
+            error instanceof Error
+              ? error.message
+              : "Unable to prepare your photo downloads."
+          )
+
+        } finally {
+          if (active) {
+            setDownloadsLoading(
+              false
+            )
+          }
+        }
+      }
+
+
+      void loadDownloads()
+
+
+      return () => {
+        active = false
+      }
+    },
+    [
+      paid,
+      orderNumber,
+      accessToken,
+      downloadRefreshNonce,
+    ]
+  )
+
+
   let title =
     "Confirming payment"
 
@@ -465,7 +680,7 @@ export default function ChipReturnPage() {
       "Payment successful"
 
     description =
-      "Your payment has been securely confirmed. Your purchased photos will be available from your order."
+      "Your payment has been securely confirmed. Your original photos are ready to download."
 
   } else if (pending) {
     title =
@@ -690,6 +905,160 @@ export default function ChipReturnPage() {
             <p className="text-xs leading-5 text-[#56757D]">
               Payment verified securely by EZFOTOO.
             </p>
+
+          </div>
+
+        )}
+
+
+        {paid && (
+
+          <div className="mt-5 rounded-[18px] border border-[#DDE8EA] bg-white p-5 text-left">
+
+            <div className="flex items-start justify-between gap-4">
+
+              <div>
+
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#0A929E]">
+                  Your photos
+                </p>
+
+
+                <h2 className="mt-1 text-base font-semibold text-[#244B55]">
+                  Original files
+                </h2>
+
+
+                <p className="mt-1 text-xs leading-5 text-[#7B8F95]">
+                  Download links are private and short-lived. Refresh them anytime while this order remains eligible for delivery.
+                </p>
+
+              </div>
+
+
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#EEF8F8]">
+                <FileImage className="h-5 w-5 text-[#168792]" />
+              </div>
+
+            </div>
+
+
+            {downloadsLoading ? (
+
+              <div className="mt-5 flex items-center justify-center gap-2 rounded-[14px] bg-[#F7FAFB] px-4 py-5 text-sm text-[#667A83]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Preparing secure downloads...
+              </div>
+
+            ) : downloadsError ? (
+
+              <div className="mt-5">
+
+                <div className="rounded-[14px] border border-[#F0DCDD] bg-[#FFF7F7] px-4 py-3 text-xs leading-5 text-[#94545C]">
+                  {downloadsError}
+                </div>
+
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDownloadRefreshNonce(
+                      (
+                        current
+                      ) =>
+                        current + 1
+                    )
+                  }}
+                  className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#D4E2E5] bg-white text-xs font-semibold text-[#45666F] transition hover:bg-[#F6FAFA]"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Try downloads again
+                </button>
+
+              </div>
+
+            ) : downloads ? (
+
+              <div className="mt-5">
+
+                <p className="mb-3 text-[10px] font-medium text-[#87989D]">
+                  These links expire in about {Math.max(
+                    1,
+                    Math.ceil(
+                      downloads.expires_in_seconds / 60
+                    )
+                  )} minutes.
+                </p>
+
+                <div className="space-y-2">
+
+                  {downloads.items.map(
+                    (
+                      item,
+                      index
+                    ) => (
+
+                      <div
+                        key={item.photo_id}
+                        className="flex items-center gap-3 rounded-[14px] border border-[#E1EAEC] bg-[#F9FBFB] p-3"
+                      >
+
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm">
+                          <FileImage className="h-4 w-4 text-[#168792]" />
+                        </div>
+
+
+                        <div className="min-w-0 flex-1">
+
+                          <p className="truncate text-xs font-semibold text-[#355B65]">
+                            {item.filename || `Photo ${index + 1}`}
+                          </p>
+
+
+                          <p className="mt-0.5 text-[10px] text-[#87989D]">
+                            {formatBytes(
+                              item.size_bytes
+                            )}
+                          </p>
+
+                        </div>
+
+
+                        <a
+                          href={item.download_url}
+                          className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#073B4C] px-3 text-[11px] font-semibold text-white transition hover:bg-[#0B5363]"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Download
+                        </a>
+
+                      </div>
+
+                    )
+                  )}
+
+                </div>
+
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDownloadRefreshNonce(
+                      (
+                        current
+                      ) =>
+                        current + 1
+                    )
+                  }}
+                  className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#D4E2E5] bg-white text-xs font-semibold text-[#45666F] transition hover:bg-[#F6FAFA]"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Refresh download links
+                </button>
+
+              </div>
+
+            ) : null}
 
           </div>
 

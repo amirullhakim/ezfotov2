@@ -38,6 +38,7 @@ from app.db.session import get_db
 from app.models import (
     EventOrder,
     EventOrderItem,
+    EventPhoto,
 )
 
 from app.services.event_order_access import (
@@ -50,6 +51,11 @@ from app.services.event_sales_pricing import (
     calculate_event_sales_quote,
 )
 
+from app.services.private_storage import (
+    PrivateStorageError,
+    generate_private_download_url,
+)
+
 
 router = APIRouter(
     prefix="/public/events",
@@ -58,6 +64,7 @@ router = APIRouter(
 
 
 ORDER_EXPIRY_MINUTES = 30
+PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS = 600
 
 
 EMAIL_PATTERN = re.compile(
@@ -522,3 +529,186 @@ def get_public_event_order_status(
                 order.expires_at,
         }
     }
+
+@router.post(
+    "/orders/{order_number}/downloads",
+)
+def get_public_event_order_downloads(
+    order_number: str,
+    payload: PublicOrderStatusRequest,
+
+    db: Session = Depends(
+        get_db
+    ),
+):
+    cleaned_order_number = (
+        order_number
+        .strip()
+        .upper()
+    )
+
+    order = db.scalar(
+        select(
+            EventOrder
+        ).where(
+            EventOrder.order_number
+            == cleaned_order_number
+        )
+    )
+
+    if (
+        order is None
+        or not verify_event_order_access_token(
+            order_id=order.id,
+            token=payload.access_token,
+        )
+    ):
+        raise HTTPException(
+            status_code=
+                status.HTTP_404_NOT_FOUND,
+            detail=
+                "Order not found.",
+        )
+
+    if order.status != "PAID":
+        raise HTTPException(
+            status_code=
+                status.HTTP_409_CONFLICT,
+            detail=(
+                "Purchased photos are available "
+                "only after payment is confirmed."
+            ),
+        )
+
+    rows = db.execute(
+        select(
+            EventOrderItem,
+            EventPhoto,
+        )
+        .join(
+            EventPhoto,
+            EventPhoto.id
+            == EventOrderItem.photo_id,
+        )
+        .where(
+            EventOrderItem.order_id
+            == order.id,
+
+            EventOrderItem.workspace_id
+            == order.workspace_id,
+
+            EventOrderItem.event_id
+            == order.event_id,
+
+            EventPhoto.workspace_id
+            == order.workspace_id,
+
+            EventPhoto.event_id
+            == order.event_id,
+        )
+        .order_by(
+            EventOrderItem.created_at.asc(),
+            EventOrderItem.id.asc(),
+        )
+    ).all()
+
+    if len(rows) != order.item_count:
+        raise HTTPException(
+            status_code=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Unable to prepare all purchased photos."
+            ),
+        )
+
+    download_items = []
+
+    try:
+        for order_item, photo in rows:
+            download_url = (
+                generate_private_download_url(
+                    object_key=
+                        photo.original_object_key,
+                    expires_seconds=
+                        PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS,
+                    download_filename=
+                        photo.original_filename,
+                )
+            )
+
+            download_items.append(
+                {
+                    "photo_id":
+                        str(photo.id),
+
+                    "filename":
+                        photo.original_filename,
+
+                    "content_type":
+                        photo.content_type,
+
+                    "size_bytes":
+                        photo.size_bytes,
+
+                    "download_url":
+                        download_url,
+                }
+            )
+
+    except PrivateStorageError as exc:
+        raise HTTPException(
+            status_code=
+                status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Unable to prepare the purchased "
+                "photo downloads right now."
+            ),
+        ) from exc
+
+    generated_at = datetime.now(
+        timezone.utc
+    )
+
+    expires_at = (
+        generated_at
+        + timedelta(
+            seconds=
+                PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS
+        )
+    )
+
+    return {
+        "order": {
+            "order_number":
+                order.order_number,
+
+            "status":
+                order.status,
+
+            "currency":
+                order.currency,
+
+            "item_count":
+                order.item_count,
+
+            "total_cents":
+                order.total_cents,
+
+            "total_rm":
+                cents_to_rm(
+                    order.total_cents
+                ),
+        },
+
+        "downloads": {
+            "expires_in_seconds":
+                PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS,
+
+            "expires_at":
+                expires_at,
+
+            "items":
+                download_items,
+        },
+    }
+
