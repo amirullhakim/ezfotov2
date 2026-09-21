@@ -9,7 +9,6 @@ import {
   ImageIcon,
   Loader2,
   MapPin,
-  Plus,
   Search,
   ShieldCheck,
   ShoppingCart,
@@ -19,12 +18,12 @@ import {
 } from "lucide-react"
 
 import type {
-  FormEvent,
-} from "react"
-
-import type {
   LucideIcon,
 } from "lucide-react"
+
+import type {
+  FormEvent,
+} from "react"
 
 import {
   useEffect,
@@ -37,6 +36,8 @@ import type {
   CartPhoto,
   EventQuoteResponse,
 } from "@/components/public-events/EventCartDrawer"
+
+import EventCheckoutModal from "@/components/public-events/EventCheckoutModal"
 
 import SelfieSearchPanel from "@/components/public-events/SelfieSearchPanel"
 
@@ -150,6 +151,10 @@ export default function PublicEventGallery({
   workspaceSlug: string
   eventSlug: string
 }) {
+  // --------------------------------------------------
+  // EVENT
+  // --------------------------------------------------
+
   const [
     eventData,
     setEventData,
@@ -196,7 +201,6 @@ export default function PublicEventGallery({
   // --------------------------------------------------
   // BIB SEARCH
   // --------------------------------------------------
-
 
   const [
     bibSearchOpen,
@@ -252,7 +256,6 @@ export default function PublicEventGallery({
   // SELFIE SEARCH
   // --------------------------------------------------
 
-
   const [
     selfieSearchOpen,
     setSelfieSearchOpen,
@@ -271,7 +274,6 @@ export default function PublicEventGallery({
   // --------------------------------------------------
   // CART
   // --------------------------------------------------
-
 
   const [
     selectedPhotos,
@@ -310,9 +312,20 @@ export default function PublicEventGallery({
 
 
   // --------------------------------------------------
-  // LIGHTBOX
+  // CHECKOUT
   // --------------------------------------------------
 
+  const [
+    checkoutOpen,
+    setCheckoutOpen,
+  ] = useState(
+    false
+  )
+
+
+  // --------------------------------------------------
+  // LIGHTBOX
+  // --------------------------------------------------
 
   const [
     lightboxPhotos,
@@ -332,7 +345,6 @@ export default function PublicEventGallery({
   // --------------------------------------------------
   // LOAD EVENT
   // --------------------------------------------------
-
 
   useEffect(() => {
     async function loadEvent() {
@@ -360,7 +372,9 @@ export default function PublicEventGallery({
           )
 
 
-        if (!eventResponse.ok) {
+        if (
+          !eventResponse.ok
+        ) {
           if (
             eventResponse.status
             === 404
@@ -420,7 +434,9 @@ export default function PublicEventGallery({
           )
 
 
-        if (!photoResponse.ok) {
+        if (
+          !photoResponse.ok
+        ) {
           throw new Error(
             "Unable to load event photos."
           )
@@ -469,7 +485,6 @@ export default function PublicEventGallery({
   // --------------------------------------------------
   // CART QUOTE
   // --------------------------------------------------
-
 
   useEffect(() => {
     if (
@@ -545,7 +560,9 @@ export default function PublicEventGallery({
               )
 
 
-            if (!response.ok) {
+            if (
+              !response.ok
+            ) {
               throw new Error(
                 "detail" in payload
                   && payload.detail
@@ -598,7 +615,6 @@ export default function PublicEventGallery({
   // --------------------------------------------------
   // CART ACTIONS
   // --------------------------------------------------
-
 
   function isPhotoSelected(
     photoId: string
@@ -687,13 +703,54 @@ export default function PublicEventGallery({
     setQuoteError(
       ""
     )
+
+    setCartOpen(
+      false
+    )
+  }
+
+
+  function openCheckout() {
+    if (
+      !quote
+      || selectedPhotos.length === 0
+    ) {
+      return
+    }
+
+
+    setCartOpen(
+      false
+    )
+
+    setCheckoutOpen(
+      true
+    )
+  }
+
+
+  function handleOrderCreated() {
+    setSelectedPhotos(
+      []
+    )
+
+    setQuote(
+      null
+    )
+
+    setQuoteError(
+      ""
+    )
+
+    setCartOpen(
+      false
+    )
   }
 
 
   // --------------------------------------------------
   // LOAD MORE
   // --------------------------------------------------
-
 
   async function loadMore() {
     if (
@@ -724,7 +781,9 @@ export default function PublicEventGallery({
         )
 
 
-      if (!response.ok) {
+      if (
+        !response.ok
+      ) {
         throw new Error(
           "Unable to load more photos."
         )
@@ -745,6 +804,7 @@ export default function PublicEventGallery({
           ...result.photos,
         ]
       )
+
 
       setHasMore(
         result.has_more
@@ -770,7 +830,6 @@ export default function PublicEventGallery({
   // --------------------------------------------------
   // BIB SEARCH
   // --------------------------------------------------
-
 
   async function searchBib(
     submitEvent: FormEvent<HTMLFormElement>
@@ -832,7 +891,9 @@ export default function PublicEventGallery({
         )
 
 
-      if (!response.ok) {
+      if (
+        !response.ok
+      ) {
         throw new Error(
           "detail" in payload
             && payload.detail
@@ -935,7 +996,6 @@ export default function PublicEventGallery({
   // SELFIE SEARCH
   // --------------------------------------------------
 
-
   function openSelfieSearch() {
     setBibSearchOpen(
       false
@@ -982,13 +1042,34 @@ export default function PublicEventGallery({
     setSelfieResults(
       results
     )
+
+
+    if (
+      results.length > 0
+    ) {
+      window.setTimeout(
+        () => {
+          document
+            .getElementById(
+              "selfie-results"
+            )
+            ?.scrollIntoView({
+              behavior:
+                "smooth",
+
+              block:
+                "nearest",
+            })
+        },
+        100
+      )
+    }
   }
 
 
   // --------------------------------------------------
   // GALLERY
   // --------------------------------------------------
-
 
   function scrollToGallery() {
     document
@@ -1008,7 +1089,6 @@ export default function PublicEventGallery({
   // --------------------------------------------------
   // LIGHTBOX
   // --------------------------------------------------
-
 
   function openLightbox(
     sourcePhotos: PublicPhoto[],
@@ -1074,8 +1154,9 @@ export default function PublicEventGallery({
   // LOADING
   // --------------------------------------------------
 
-
-  if (loading) {
+  if (
+    loading
+  ) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#F7FAFB]">
 
@@ -1092,6 +1173,10 @@ export default function PublicEventGallery({
   }
 
 
+  // --------------------------------------------------
+  // ERROR
+  // --------------------------------------------------
+
   if (
     errorMessage
     || !eventData
@@ -1101,7 +1186,11 @@ export default function PublicEventGallery({
 
         <div className="w-full max-w-md rounded-[28px] border border-[#DFE9EC] bg-white p-8 text-center shadow-sm">
 
-          <Camera className="mx-auto h-7 w-7 text-[#149BA7]" />
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EAF8F9]">
+
+            <Camera className="h-6 w-6 text-[#149BA7]" />
+
+          </div>
 
 
           <h1 className="mt-5 text-xl font-semibold text-[#173B46]">
@@ -1137,15 +1226,17 @@ export default function PublicEventGallery({
   return (
     <main className="min-h-screen bg-[#F7FAFB] text-[#153842]">
 
-      {/* NAVBAR */}
+      {/* ------------------------------------------------ */}
+      {/* NAVBAR                                           */}
+      {/* ------------------------------------------------ */}
 
       <header className="sticky top-0 z-40 border-b border-[#E2EBED] bg-white/95 backdrop-blur">
 
         <div className="mx-auto flex h-[72px] max-w-[1500px] items-center justify-between px-5 sm:px-7 lg:px-10">
 
-          <div>
+          <div className="min-w-0">
 
-            <p className="text-[15px] font-semibold text-[#163A44]">
+            <p className="truncate text-[15px] font-semibold tracking-[-0.01em] text-[#163A44]">
               {workspace.name}
             </p>
 
@@ -1168,11 +1259,10 @@ export default function PublicEventGallery({
                     true
                   )
                 }
-                className="relative flex h-10 items-center gap-2 rounded-xl bg-[#073B4C] px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0B5363]"
+                className="flex h-10 items-center gap-2 rounded-xl bg-[#073B4C] px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0B5363]"
               >
 
                 <ShoppingCart className="h-4 w-4" />
-
 
                 {selectedPhotos.length}
                 {" "}
@@ -1190,6 +1280,7 @@ export default function PublicEventGallery({
 
               <ShieldCheck className="h-3.5 w-3.5 text-[#159B83]" />
 
+
               <span className="text-[11px] font-semibold text-[#60777F]">
                 Protected previews
               </span>
@@ -1203,7 +1294,9 @@ export default function PublicEventGallery({
       </header>
 
 
-      {/* HERO */}
+      {/* ------------------------------------------------ */}
+      {/* HERO                                             */}
+      {/* ------------------------------------------------ */}
 
       <section className="border-b border-[#E1EAED] bg-white">
 
@@ -1221,6 +1314,15 @@ export default function PublicEventGallery({
               <h1 className="mt-3 text-[34px] font-semibold tracking-[-0.045em] text-[#112F39] sm:text-[44px] lg:text-[52px]">
                 {event.title}
               </h1>
+
+
+              {event.description && (
+
+                <p className="mt-4 max-w-2xl text-sm leading-7 text-[#687E86] sm:text-[15px]">
+                  {event.description}
+                </p>
+
+              )}
 
 
               <div className="mt-6 flex flex-wrap gap-x-5 gap-y-3 text-sm text-[#698089]">
@@ -1275,24 +1377,34 @@ export default function PublicEventGallery({
               </p>
 
 
-              <p className="mt-1 text-2xl font-semibold text-[#123A45]">
+              <div className="mt-1 flex items-baseline gap-1">
 
-                RM
-                {event
-                  .pricing
-                  .price_per_photo_rm
-                  .toFixed(
-                    2
-                  )}
+                <span className="text-2xl font-semibold tracking-[-0.03em] text-[#123A45]">
 
-              </p>
+                  RM
+                  {" "}
+                  {event
+                    .pricing
+                    .price_per_photo_rm
+                    .toFixed(
+                      2
+                    )}
+
+                </span>
+
+
+                <span className="text-xs text-[#81949A]">
+                  / photo
+                </span>
+
+              </div>
 
 
               {event
                 .pricing
                 .bundle_enabled && (
 
-                <p className="mt-2 text-xs text-[#6C828A]">
+                <p className="mt-2 text-xs leading-5 text-[#6C828A]">
 
                   {event
                     .pricing
@@ -1319,20 +1431,31 @@ export default function PublicEventGallery({
       </section>
 
 
-      {/* DISCOVERY */}
+      {/* ------------------------------------------------ */}
+      {/* DISCOVERY                                        */}
+      {/* ------------------------------------------------ */}
 
       <section className="mx-auto max-w-[1500px] px-5 py-8 sm:px-7 lg:px-10">
 
-        <div className="rounded-[28px] border border-[#DDE8EB] bg-white p-5 sm:p-7">
+        <div className="rounded-[28px] border border-[#DDE8EB] bg-white p-5 shadow-[0_12px_35px_rgba(24,62,72,0.04)] sm:p-6 lg:p-7">
 
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#0B9AA7]">
-            Find your photos
-          </p>
+          <div>
+
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#0B9AA7]">
+              Find your photos
+            </p>
 
 
-          <h2 className="mt-2 text-2xl font-semibold text-[#163B46]">
-            Skip the scrolling.
-          </h2>
+            <h2 className="mt-2 text-xl font-semibold tracking-[-0.025em] text-[#163B46] sm:text-2xl">
+              Skip the scrolling.
+            </h2>
+
+
+            <p className="mt-2 text-sm leading-6 text-[#70848B]">
+              Use your race bib or a selfie to find matching event photos.
+            </p>
+
+          </div>
 
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -1384,7 +1507,9 @@ export default function PublicEventGallery({
                   ImageIcon
                 }
                 title="Browse gallery"
-                description={`Explore all ${event.photo_count} event photos.`}
+                description={
+                  `Explore all ${event.photo_count} available event photos.`
+                }
                 label="Browse below"
                 onClick={
                   scrollToGallery
@@ -1396,131 +1521,214 @@ export default function PublicEventGallery({
           </div>
 
 
-          {/* BIB PANEL */}
+          {/* ------------------------------------------------ */}
+          {/* BIB SEARCH                                      */}
+          {/* ------------------------------------------------ */}
 
           {bibSearchOpen && (
 
             <div
               id="bib-search-panel"
-              className="mt-6 rounded-[22px] border border-[#D9E7E9] bg-[#F8FBFB] p-5"
+              className="mt-6 overflow-hidden rounded-[22px] border border-[#D9E7E9] bg-[#F8FBFB]"
             >
 
-              <form
-                onSubmit={
-                  searchBib
-                }
-                className="flex flex-col gap-3 sm:flex-row"
-              >
+              <div className="border-b border-[#DFE9EB] px-5 py-5 sm:px-6">
 
-                <input
-                  value={
-                    bibInput
-                  }
-                  onChange={(
-                    inputEvent
-                  ) =>
-                    setBibInput(
-                      inputEvent.target.value
-                    )
-                  }
-                  placeholder="e.g. M90006"
-                  className="h-12 flex-1 rounded-xl border border-[#D5E3E6] bg-white px-4 text-sm font-semibold uppercase outline-none"
-                />
+                <div className="flex items-start justify-between gap-4">
+
+                  <div>
+
+                    <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#0B9AA7]">
+                      Bib Search
+                    </p>
 
 
-                <button
-                  type="submit"
-                  disabled={
-                    bibSearching
-                  }
-                  className="h-12 rounded-xl bg-[#073B4C] px-6 text-sm font-semibold text-white"
-                >
-
-                  {bibSearching
-                    ? "Searching..."
-                    : "Search photos"}
-
-                </button>
+                    <h3 className="mt-1.5 text-lg font-semibold text-[#214650]">
+                      Enter your race number
+                    </h3>
 
 
-                {bibSearchDone && (
+                    <p className="mt-1 text-sm text-[#788C93]">
+                      We&apos;ll look for photos where your bib was recognized.
+                    </p>
+
+                  </div>
+
 
                   <button
                     type="button"
-                    onClick={
-                      clearBibSearch
+                    onClick={() =>
+                      setBibSearchOpen(
+                        false
+                      )
                     }
-                    className="h-12 rounded-xl border bg-white px-5 text-sm font-semibold"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#D9E5E8] bg-white text-[#6D8289] transition hover:bg-[#F2F7F8]"
                   >
-                    Clear
+
+                    <X className="h-4 w-4" />
+
                   </button>
+
+                </div>
+
+
+                <form
+                  onSubmit={
+                    searchBib
+                  }
+                  className="mt-5 flex flex-col gap-3 sm:flex-row"
+                >
+
+                  <div className="relative flex-1">
+
+                    <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#78939A]" />
+
+
+                    <input
+                      type="text"
+                      value={
+                        bibInput
+                      }
+                      onChange={(
+                        inputEvent
+                      ) => {
+                        setBibInput(
+                          inputEvent.target.value
+                        )
+
+                        setBibSearchError(
+                          ""
+                        )
+                      }}
+                      placeholder="e.g. M90006"
+                      autoComplete="off"
+                      className="h-12 w-full rounded-xl border border-[#D5E3E6] bg-white pl-11 pr-4 text-sm font-semibold uppercase text-[#244A54] outline-none transition placeholder:font-normal placeholder:normal-case placeholder:text-[#9AA9AE] focus:border-[#49BAC4] focus:ring-4 focus:ring-[#DFF6F7]"
+                    />
+
+                  </div>
+
+
+                  <button
+                    type="submit"
+                    disabled={
+                      bibSearching
+                    }
+                    className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#073B4C] px-6 text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:opacity-60"
+                  >
+
+                    {bibSearching ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+
+                    Search photos
+
+                  </button>
+
+
+                  {bibSearchDone && (
+
+                    <button
+                      type="button"
+                      onClick={
+                        clearBibSearch
+                      }
+                      className="h-12 rounded-xl border border-[#D8E4E7] bg-white px-5 text-sm font-semibold text-[#607880]"
+                    >
+                      Clear
+                    </button>
+
+                  )}
+
+                </form>
+
+
+                {bibSearchError && (
+
+                  <div className="mt-3 rounded-xl border border-[#F1CED2] bg-[#FFF7F7] px-4 py-3 text-sm font-medium text-[#A64F58]">
+                    {bibSearchError}
+                  </div>
 
                 )}
 
-              </form>
-
-
-              {bibSearchError && (
-
-                <p className="mt-3 text-sm text-red-600">
-                  {bibSearchError}
-                </p>
-
-              )}
+              </div>
 
 
               {bibSearchDone && (
 
-                <div className="mt-6">
+                <div className="p-5 sm:p-6">
 
                   <p className="text-sm font-semibold text-[#315963]">
 
-                    {bibResults.length}
+                    {bibResults.length === 1
+                      ? "1 matching photo"
+                      : `${bibResults.length} matching photos`}
                     {" "}
-                    matching photos for
+                    for
                     {" "}
-                    {searchedBib}
+
+                    <span className="text-[#0B8D99]">
+                      {searchedBib}
+                    </span>
 
                   </p>
 
 
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {bibResults.length === 0 ? (
 
-                    {bibResults.map(
-                      (
-                        photo,
-                        index
-                      ) => (
+                    <div className="mt-5 rounded-[18px] border border-dashed border-[#D3E2E5] bg-white px-5 py-10 text-center">
 
-                        <PhotoCard
-                          key={
-                            photo.id
-                          }
-                          photo={
-                            photo
-                          }
-                          selected={
-                            isPhotoSelected(
+                      <Search className="mx-auto h-6 w-6 text-[#91AAB0]" />
+
+
+                      <p className="mt-3 font-semibold text-[#44636B]">
+                        No matching photos found
+                      </p>
+
+                    </div>
+
+                  ) : (
+
+                    <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+
+                      {bibResults.map(
+                        (
+                          photo,
+                          index
+                        ) => (
+
+                          <PhotoCard
+                            key={
                               photo.id
-                            )
-                          }
-                          onToggle={() =>
-                            togglePhotoSelection(
+                            }
+                            photo={
                               photo
-                            )
-                          }
-                          onOpen={() =>
-                            openLightbox(
-                              bibResults,
-                              index
-                            )
-                          }
-                        />
+                            }
+                            selected={
+                              isPhotoSelected(
+                                photo.id
+                              )
+                            }
+                            onToggle={() =>
+                              togglePhotoSelection(
+                                photo
+                              )
+                            }
+                            onOpen={() =>
+                              openLightbox(
+                                bibResults,
+                                index
+                              )
+                            }
+                          />
 
-                      )
-                    )}
+                        )
+                      )}
 
-                  </div>
+                    </div>
+
+                  )}
 
                 </div>
 
@@ -1531,7 +1739,9 @@ export default function PublicEventGallery({
           )}
 
 
-          {/* SELFIE PANEL */}
+          {/* ------------------------------------------------ */}
+          {/* SELFIE SEARCH                                   */}
+          {/* ------------------------------------------------ */}
 
           {selfieSearchOpen && (
 
@@ -1539,6 +1749,25 @@ export default function PublicEventGallery({
               id="selfie-search-panel"
               className="mt-6"
             >
+
+              <div className="mb-3 flex justify-end">
+
+                <button
+                  type="button"
+                  onClick={
+                    closeSelfieSearch
+                  }
+                  className="flex h-9 items-center gap-2 rounded-xl border border-[#D9E5E8] bg-white px-3 text-xs font-semibold text-[#617981] transition hover:bg-[#F4F8F9]"
+                >
+
+                  <X className="h-3.5 w-3.5" />
+
+                  Close selfie search
+
+                </button>
+
+              </div>
+
 
               <SelfieSearchPanel
                 workspaceSlug={
@@ -1555,14 +1784,35 @@ export default function PublicEventGallery({
 
               {selfieResults.length > 0 && (
 
-                <div className="mt-5 rounded-[22px] border border-[#D9E7E9] bg-[#F8FBFB] p-5">
+                <div
+                  id="selfie-results"
+                  className="mt-5 rounded-[22px] border border-[#D9E7E9] bg-[#F8FBFB] p-5 sm:p-6"
+                >
 
-                  <h3 className="font-semibold text-[#214650]">
-                    Possible matches
-                  </h3>
+                  <div>
+
+                    <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#0B9AA7]">
+                      Possible Matches
+                    </p>
 
 
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    <h3 className="mt-1.5 text-lg font-semibold text-[#214650]">
+
+                      {selfieResults.length === 1
+                        ? "1 photo may contain you"
+                        : `${selfieResults.length} photos may contain you`}
+
+                    </h3>
+
+
+                    <p className="mt-1 text-xs leading-5 text-[#7E9198]">
+                      Review the protected previews to confirm your photos.
+                    </p>
+
+                  </div>
+
+
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 
                     {selfieResults.map(
                       (
@@ -1613,7 +1863,9 @@ export default function PublicEventGallery({
       </section>
 
 
-      {/* GALLERY */}
+      {/* ------------------------------------------------ */}
+      {/* GALLERY                                          */}
+      {/* ------------------------------------------------ */}
 
       {event.discovery.browse && (
 
@@ -1631,59 +1883,87 @@ export default function PublicEventGallery({
               </p>
 
 
-              <h2 className="mt-2 text-2xl font-semibold text-[#153A44]">
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#153A44]">
                 Browse all photos
               </h2>
 
             </div>
 
+
+            <p className="hidden text-sm text-[#809298] sm:block">
+
+              {photos.length}
+              {" "}
+              of
+              {" "}
+              {event.photo_count}
+
+            </p>
+
           </div>
 
 
-          <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4">
+          {photos.length === 0 ? (
 
-            {photos.map(
-              (
-                photo,
-                index
-              ) => (
+            <div className="rounded-[28px] border border-dashed border-[#D5E3E6] bg-white px-6 py-16 text-center">
 
-                <div
-                  key={
-                    photo.id
-                  }
-                  className="mb-4 break-inside-avoid"
-                >
+              <Camera className="mx-auto h-7 w-7 text-[#8EB1B8]" />
 
-                  <PhotoCard
-                    photo={
-                      photo
+
+              <p className="mt-4 font-semibold text-[#375A64]">
+                No photos available yet
+              </p>
+
+            </div>
+
+          ) : (
+
+            <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4">
+
+              {photos.map(
+                (
+                  photo,
+                  index
+                ) => (
+
+                  <div
+                    key={
+                      photo.id
                     }
-                    selected={
-                      isPhotoSelected(
-                        photo.id
-                      )
-                    }
-                    masonry
-                    onToggle={() =>
-                      togglePhotoSelection(
+                    className="mb-4 break-inside-avoid"
+                  >
+
+                    <PhotoCard
+                      photo={
                         photo
-                      )
-                    }
-                    onOpen={() =>
-                      openLightbox(
-                        photos,
-                        index
-                      )
-                    }
-                  />
+                      }
+                      selected={
+                        isPhotoSelected(
+                          photo.id
+                        )
+                      }
+                      masonry
+                      onToggle={() =>
+                        togglePhotoSelection(
+                          photo
+                        )
+                      }
+                      onOpen={() =>
+                        openLightbox(
+                          photos,
+                          index
+                        )
+                      }
+                    />
 
-                </div>
+                  </div>
 
-              )
-            )}
+                )
+              )}
 
-          </div>
+            </div>
+
+          )}
 
 
           {hasMore && (
@@ -1698,8 +1978,14 @@ export default function PublicEventGallery({
                 onClick={
                   loadMore
                 }
-                className="h-11 rounded-xl border bg-white px-5 text-sm font-semibold"
+                className="flex h-11 items-center gap-2 rounded-xl border border-[#D8E4E7] bg-white px-5 text-sm font-semibold text-[#375E68] transition hover:bg-[#F7FAFB] disabled:opacity-50"
               >
+
+                {loadingMore ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ImageIcon className="h-4 w-4" />
+                )}
 
                 {loadingMore
                   ? "Loading..."
@@ -1716,7 +2002,31 @@ export default function PublicEventGallery({
       )}
 
 
-      {/* FLOATING CART */}
+      {/* ------------------------------------------------ */}
+      {/* FOOTER                                           */}
+      {/* ------------------------------------------------ */}
+
+      <footer className="border-t border-[#DFE8EA] bg-white">
+
+        <div className="mx-auto flex max-w-[1500px] flex-col gap-2 px-5 py-7 sm:px-7 lg:px-10">
+
+          <p className="text-sm font-semibold text-[#365861]">
+            {workspace.name}
+          </p>
+
+
+          <p className="text-xs text-[#8A9CA1]">
+            Event gallery powered by EZFOTOO
+          </p>
+
+        </div>
+
+      </footer>
+
+
+      {/* ------------------------------------------------ */}
+      {/* FLOATING CART                                    */}
+      {/* ------------------------------------------------ */}
 
       {selectedPhotos.length > 0 && (
 
@@ -1765,18 +2075,32 @@ export default function PublicEventGallery({
       )}
 
 
-      {/* LIGHTBOX */}
+      {/* ------------------------------------------------ */}
+      {/* LIGHTBOX                                         */}
+      {/* ------------------------------------------------ */}
 
       {selectedPhoto && (
 
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#061A21]/92 p-4">
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-[#061A21]/92 p-4 backdrop-blur-sm"
+          onMouseDown={(
+            clickEvent
+          ) => {
+            if (
+              clickEvent.target
+              === clickEvent.currentTarget
+            ) {
+              closePreview()
+            }
+          }}
+        >
 
           <button
             type="button"
             onClick={
               closePreview
             }
-            className="absolute right-5 top-5 z-20 flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-white"
+            className="absolute right-5 top-5 z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-[#0A2B35]/85 text-white/80 backdrop-blur transition hover:bg-[#103945] hover:text-white"
           >
 
             <X className="h-5 w-5" />
@@ -1792,7 +2116,7 @@ export default function PublicEventGallery({
                 onClick={
                   showPrevious
                 }
-                className="absolute left-5 z-20 flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-white"
+                className="absolute left-5 z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-[#0A2B35]/85 text-white/80 backdrop-blur transition hover:bg-[#103945]"
               >
 
                 <ChevronLeft className="h-5 w-5" />
@@ -1805,7 +2129,7 @@ export default function PublicEventGallery({
                 onClick={
                   showNext
                 }
-                className="absolute right-5 z-20 flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-white"
+                className="absolute right-5 z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-[#0A2B35]/85 text-white/80 backdrop-blur transition hover:bg-[#103945]"
               >
 
                 <ChevronRight className="h-5 w-5" />
@@ -1822,8 +2146,8 @@ export default function PublicEventGallery({
               src={
                 selectedPhoto.preview_url
               }
-              alt="Protected preview"
-              className="max-h-[82vh] max-w-full rounded-2xl object-contain"
+              alt="Protected event preview"
+              className="max-h-[82vh] max-w-full rounded-2xl object-contain shadow-2xl"
             />
 
 
@@ -1834,33 +2158,38 @@ export default function PublicEventGallery({
                   selectedPhoto
                 )
               }
+              aria-label={
+                isPhotoSelected(
+                  selectedPhoto.id
+                )
+                  ? "Remove photo from selection"
+                  : "Select photo"
+              }
+              title={
+                isPhotoSelected(
+                  selectedPhoto.id
+                )
+                  ? "Selected"
+                  : "Select photo"
+              }
               className={
                 [
-                  "mt-4 flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold",
+                  "mt-4 flex h-11 w-11 items-center justify-center rounded-full border-2 shadow-[0_8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md transition-all duration-200 active:scale-95",
                   isPhotoSelected(
                     selectedPhoto.id
                   )
-                    ? "bg-[#E5F8F3] text-[#147662]"
-                    : "bg-white text-[#173F49]",
+                    ? "border-white bg-[#1CC9D8] text-white shadow-[0_8px_26px_rgba(28,201,216,0.30)]"
+                    : "border-white/90 bg-white/15 text-white hover:bg-white/25",
                 ].join(
                   " "
                 )
               }
             >
 
-              {isPhotoSelected(
-                selectedPhoto.id
-              ) ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Plus className="h-4 w-4" />
-              )}
-
-              {isPhotoSelected(
-                selectedPhoto.id
-              )
-                ? "Selected"
-                : "Select photo"}
+              <Check
+                className="h-[18px] w-[18px]"
+                strokeWidth={3}
+              />
 
             </button>
 
@@ -1871,7 +2200,9 @@ export default function PublicEventGallery({
       )}
 
 
-      {/* CART DRAWER */}
+      {/* ------------------------------------------------ */}
+      {/* CART DRAWER                                      */}
+      {/* ------------------------------------------------ */}
 
       <EventCartDrawer
         open={
@@ -1900,11 +2231,50 @@ export default function PublicEventGallery({
         onClear={
           clearCart
         }
+        onCheckout={
+          openCheckout
+        }
+      />
+
+
+      {/* ------------------------------------------------ */}
+      {/* CHECKOUT                                         */}
+      {/* ------------------------------------------------ */}
+
+      <EventCheckoutModal
+        open={
+          checkoutOpen
+        }
+        workspaceSlug={
+          workspaceSlug
+        }
+        eventSlug={
+          eventSlug
+        }
+        selectedPhotos={
+          selectedPhotos as CartPhoto[]
+        }
+        quote={
+          quote
+        }
+        onClose={() =>
+          setCheckoutOpen(
+            false
+          )
+        }
+        onOrderCreated={
+          handleOrderCreated
+        }
       />
 
     </main>
   )
 }
+
+
+// --------------------------------------------------
+// PHOTO CARD
+// --------------------------------------------------
 
 
 function PhotoCard({
@@ -1925,7 +2295,18 @@ function PhotoCard({
   onOpen: () => void
 }) {
   return (
-    <div className="group relative overflow-hidden rounded-[18px] bg-[#EAF1F3]">
+    <div
+      className={
+        [
+          "group relative overflow-hidden rounded-[18px] bg-[#EAF1F3] transition",
+          selected
+            ? "ring-2 ring-[#27A8B3] ring-offset-2 ring-offset-[#F7FAFB]"
+            : "",
+        ].join(
+          " "
+        )
+      }
+    >
 
       <button
         type="button"
@@ -1953,36 +2334,43 @@ function PhotoCard({
 
       <button
         type="button"
-        onClick={
-          onToggle
+        onClick={(
+          clickEvent
+        ) => {
+          clickEvent.stopPropagation()
+          onToggle()
+        }}
+        aria-label={
+          selected
+            ? "Remove photo from selection"
+            : "Select photo"
+        }
+        title={
+          selected
+            ? "Selected"
+            : "Select photo"
         }
         className={
           [
-            "absolute right-3 top-3 flex h-10 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold shadow-sm backdrop-blur transition",
+            "absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 shadow-[0_3px_12px_rgba(7,59,76,0.22)] backdrop-blur-md transition-all duration-200 active:scale-90",
             selected
-              ? "border-[#B9E5DA] bg-[#E7F8F3]/95 text-[#147662]"
-              : "border-white/40 bg-white/90 text-[#285762] hover:bg-white",
+              ? "border-white bg-[#1CC9D8] text-white shadow-[0_4px_14px_rgba(28,201,216,0.38)]"
+              : "border-white/95 bg-[#073B4C]/25 text-white/95 hover:bg-[#073B4C]/40",
           ].join(
             " "
           )
         }
       >
 
-        {selected ? (
-          <Check className="h-4 w-4" />
-        ) : (
-          <Plus className="h-4 w-4" />
-        )}
-
-
-        {selected
-          ? "Selected"
-          : "Select"}
+        <Check
+          className="h-4 w-4"
+          strokeWidth={3}
+        />
 
       </button>
 
 
-      <div className="pointer-events-none absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-xl bg-white/90 text-[#155866] opacity-0 shadow-sm transition group-hover:opacity-100">
+      <div className="pointer-events-none absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-xl bg-white/90 text-[#155866] opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100">
 
         <Sparkles className="h-4 w-4" />
 
@@ -1991,6 +2379,11 @@ function PhotoCard({
     </div>
   )
 }
+
+
+// --------------------------------------------------
+// DISCOVERY CARD
+// --------------------------------------------------
 
 
 function DiscoveryCard({
@@ -2019,10 +2412,10 @@ function DiscoveryCard({
       }
       className={
         [
-          "w-full rounded-[20px] border p-5 text-left transition",
+          "group w-full rounded-[20px] border p-5 text-left transition",
           active
-            ? "border-[#8BD5DB] bg-[#F0FBFB]"
-            : "border-[#E0E9EB] bg-[#FBFCFC] hover:border-[#B9DDE1]",
+            ? "border-[#8BD5DB] bg-[#F0FBFB] shadow-[0_8px_24px_rgba(27,122,137,0.08)]"
+            : "border-[#E0E9EB] bg-[#FBFCFC] hover:border-[#B9DDE1] hover:bg-[#F7FBFB]",
         ].join(
           " "
         )
@@ -2046,15 +2439,22 @@ function DiscoveryCard({
       </p>
 
 
-      <div className="mt-4 flex items-center gap-1 text-xs font-bold text-[#18838E]">
+      <div className="mt-4 flex items-center gap-1.5 text-xs font-bold text-[#18838E]">
+
         {label}
 
         <ChevronRight className="h-3.5 w-3.5" />
+
       </div>
 
     </button>
   )
 }
+
+
+// --------------------------------------------------
+// DATE
+// --------------------------------------------------
 
 
 function formatDate(
@@ -2064,6 +2464,15 @@ function formatDate(
     new Date(
       `${value}T00:00:00`
     )
+
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return value
+  }
 
 
   return new Intl.DateTimeFormat(

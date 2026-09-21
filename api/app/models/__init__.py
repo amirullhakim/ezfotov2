@@ -20,6 +20,9 @@ from app.models.event_processing_job import EventProcessingJob
 from app.models.event_bib_detection import EventBibDetection
 from app.models.event_face_embedding import EventFaceEmbedding
 
+from app.models.event_order import EventOrder
+from app.models.event_order_item import EventOrderItem
+
 
 __all__ = [
     "Profile",
@@ -42,4 +45,7 @@ __all__ = [
     "EventProcessingJob",
     "EventBibDetection",
     "EventFaceEmbedding",
+
+    "EventOrder",
+    "EventOrderItem",
 ]

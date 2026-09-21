@@ -14,27 +14,19 @@ from pydantic import (
     Field,
 )
 
-from sqlalchemy import (
-    select,
-)
-
-from sqlalchemy.orm import (
-    Session,
-)
+from sqlalchemy.orm import Session
 
 from app.api.routes.public_event_sales import (
     event_sales_open,
     get_public_event_workspace,
     get_public_live_event,
-    public_photo_conditions,
 )
 
-from app.db.session import (
-    get_db,
-)
+from app.db.session import get_db
 
-from app.models import (
-    EventPhoto,
+from app.services.event_sales_pricing import (
+    MAX_CART_PHOTOS,
+    calculate_event_sales_quote,
 )
 
 
@@ -42,14 +34,6 @@ router = APIRouter(
     prefix="/public/events",
     tags=["Public Event Cart"],
 )
-
-
-MAX_CART_PHOTOS = 100
-
-
-# --------------------------------------------------
-# REQUEST
-# --------------------------------------------------
 
 
 class PublicEventQuoteRequest(
@@ -62,11 +46,6 @@ class PublicEventQuoteRequest(
     )
 
 
-# --------------------------------------------------
-# MONEY
-# --------------------------------------------------
-
-
 def cents_to_rm(
     value: int,
 ) -> float:
@@ -74,11 +53,6 @@ def cents_to_rm(
         value / 100,
         2,
     )
-
-
-# --------------------------------------------------
-# QUOTE
-# --------------------------------------------------
 
 
 @router.post(
@@ -111,10 +85,6 @@ def quote_public_event_cart(
     )
 
 
-    # ----------------------------------------------
-    # SALES STATUS
-    # ----------------------------------------------
-
     if not event_sales_open(
         event
     ):
@@ -128,240 +98,24 @@ def quote_public_event_cart(
         )
 
 
-    # ----------------------------------------------
-    # REMOVE DUPLICATES
-    # ----------------------------------------------
-
-    unique_photo_ids: list[
-        UUID
-    ] = []
-
-
-    seen_photo_ids: set[
-        UUID
-    ] = set()
-
-
-    for photo_id in (
-        payload.photo_ids
-    ):
-        if (
-            photo_id
-            in seen_photo_ids
-        ):
-            continue
-
-
-        seen_photo_ids.add(
-            photo_id
+    try:
+        quote = (
+            calculate_event_sales_quote(
+                db=db,
+                event=event,
+                photo_ids=
+                    payload.photo_ids,
+            )
         )
 
-
-        unique_photo_ids.append(
-            photo_id
-        )
-
-
-    if not unique_photo_ids:
+    except ValueError as exc:
         raise HTTPException(
             status_code=
                 status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Select at least one photo."
-            ),
-        )
+            detail=
+                str(exc),
+        ) from exc
 
-
-    # ----------------------------------------------
-    # VALIDATE PUBLIC PHOTOS
-    # ----------------------------------------------
-
-    photos = list(
-        db.scalars(
-            select(
-                EventPhoto
-            )
-            .where(
-                *public_photo_conditions(
-                    event
-                ),
-
-                EventPhoto.id.in_(
-                    unique_photo_ids
-                ),
-            )
-        )
-    )
-
-
-    photo_map = {
-        photo.id: photo
-        for photo in photos
-    }
-
-
-    if (
-        len(photo_map)
-        != len(
-            unique_photo_ids
-        )
-    ):
-        raise HTTPException(
-            status_code=
-                status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "One or more selected photos "
-                "are no longer available."
-            ),
-        )
-
-
-    # Preserve customer selection order.
-    selected_photos = [
-        photo_map[
-            photo_id
-        ]
-        for photo_id
-        in unique_photo_ids
-    ]
-
-
-    selected_count = len(
-        selected_photos
-    )
-
-
-    # ----------------------------------------------
-    # BASE PRICE
-    # ----------------------------------------------
-
-    unit_price_cents = max(
-        int(
-            event.price_per_photo_cents
-            or 0
-        ),
-        0,
-    )
-
-
-    regular_subtotal_cents = (
-        selected_count
-        * unit_price_cents
-    )
-
-
-    # ----------------------------------------------
-    # BUNDLE SETTINGS
-    # ----------------------------------------------
-
-    configured_bundle_enabled = bool(
-        event.bundle_enabled
-    )
-
-
-    bundle_quantity = max(
-        int(
-            event.bundle_quantity
-            or 0
-        ),
-        0,
-    )
-
-
-    bundle_price_cents = max(
-        int(
-            event.bundle_price_cents
-            or 0
-        ),
-        0,
-    )
-
-
-    bundle_is_valid = bool(
-        configured_bundle_enabled
-        and bundle_quantity > 1
-        and bundle_price_cents > 0
-    )
-
-
-    # Only use the bundle if it actually gives
-    # the customer a better price.
-    bundle_is_beneficial = bool(
-        bundle_is_valid
-        and bundle_price_cents
-        < (
-            bundle_quantity
-            * unit_price_cents
-        )
-    )
-
-
-    # ----------------------------------------------
-    # CALCULATE TOTAL
-    # ----------------------------------------------
-
-    bundle_count = 0
-
-    bundled_photo_count = 0
-
-    remainder_photo_count = (
-        selected_count
-    )
-
-
-    if bundle_is_beneficial:
-        bundle_count = (
-            selected_count
-            // bundle_quantity
-        )
-
-
-        bundled_photo_count = (
-            bundle_count
-            * bundle_quantity
-        )
-
-
-        remainder_photo_count = (
-            selected_count
-            - bundled_photo_count
-        )
-
-
-    bundle_total_cents = (
-        bundle_count
-        * bundle_price_cents
-    )
-
-
-    remainder_total_cents = (
-        remainder_photo_count
-        * unit_price_cents
-    )
-
-
-    if bundle_is_beneficial:
-        total_cents = (
-            bundle_total_cents
-            + remainder_total_cents
-        )
-
-    else:
-        total_cents = (
-            regular_subtotal_cents
-        )
-
-
-    savings_cents = max(
-        regular_subtotal_cents
-        - total_cents,
-        0,
-    )
-
-
-    # ----------------------------------------------
-    # RESPONSE
-    # ----------------------------------------------
 
     return {
         "event_id":
@@ -371,76 +125,76 @@ def quote_public_event_cart(
             event.currency,
 
         "selected_count":
-            selected_count,
+            quote.selected_count,
 
         "selected_photo_ids": [
             str(
                 photo.id
             )
             for photo
-            in selected_photos
+            in quote.photos
         ],
 
         "pricing": {
             "unit_price_cents":
-                unit_price_cents,
+                quote.unit_price_cents,
 
             "unit_price_rm":
                 cents_to_rm(
-                    unit_price_cents
+                    quote.unit_price_cents
                 ),
 
             "regular_subtotal_cents":
-                regular_subtotal_cents,
+                quote.regular_subtotal_cents,
 
             "regular_subtotal_rm":
                 cents_to_rm(
-                    regular_subtotal_cents
+                    quote.regular_subtotal_cents
                 ),
 
             "total_cents":
-                total_cents,
+                quote.total_cents,
 
             "total_rm":
                 cents_to_rm(
-                    total_cents
+                    quote.total_cents
                 ),
 
             "savings_cents":
-                savings_cents,
+                quote.discount_cents,
 
             "savings_rm":
                 cents_to_rm(
-                    savings_cents
+                    quote.discount_cents
                 ),
         },
 
         "bundle": {
             "configured":
-                configured_bundle_enabled,
+                quote.bundle_configured,
 
             "applied":
-                bundle_count > 0,
+                quote.bundle_applied,
 
             "quantity":
-                bundle_quantity,
+                quote.bundle_quantity,
 
             "price_cents":
-                bundle_price_cents,
+                quote.bundle_price_cents,
 
             "price_rm":
                 cents_to_rm(
-                    bundle_price_cents
+                    quote.bundle_price_cents
                 ),
 
             "bundle_count":
-                bundle_count,
+                quote.bundle_count,
 
             "bundled_photo_count":
-                bundled_photo_count,
+                quote.bundled_photo_count,
 
             "remainder_photo_count":
-                remainder_photo_count,
+                quote.remainder_photo_count,
         },
 
         "sales": {

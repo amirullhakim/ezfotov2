@@ -80,6 +80,10 @@ from app.api.routes.workspaces import (
     router as workspaces_router,
 )
 
+from app.api.routes.public_event_orders import (
+    router as public_event_orders_router,
+)
+
 
 api_router = APIRouter()
 
@@ -162,4 +166,8 @@ api_router.include_router(
 
 api_router.include_router(
     public_event_cart_router
+)
+
+api_router.include_router(
+    public_event_orders_router
 )

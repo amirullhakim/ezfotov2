@@ -72,6 +72,7 @@ export default function EventCartDrawer({
   onClose,
   onRemove,
   onClear,
+  onCheckout,
 }: {
   open: boolean
 
@@ -89,6 +90,8 @@ export default function EventCartDrawer({
   ) => void
 
   onClear: () => void
+
+  onCheckout: () => void
 }) {
   if (!open) {
     return null
@@ -109,8 +112,6 @@ export default function EventCartDrawer({
 
 
       <aside className="absolute bottom-0 right-0 top-0 flex w-full max-w-[460px] flex-col border-l border-[#DCE7E9] bg-[#F8FBFB] shadow-[-18px_0_55px_rgba(7,45,58,0.16)]">
-
-        {/* HEADER */}
 
         <div className="border-b border-[#DFE8EA] bg-white px-5 py-5">
 
@@ -162,8 +163,6 @@ export default function EventCartDrawer({
         </div>
 
 
-        {/* PHOTOS */}
-
         <div className="flex-1 overflow-y-auto px-5 py-5">
 
           {selectedPhotos.length === 0 ? (
@@ -175,11 +174,6 @@ export default function EventCartDrawer({
 
               <p className="mt-3 font-semibold text-[#45666E]">
                 Your cart is empty
-              </p>
-
-
-              <p className="mt-1 text-xs leading-5 text-[#89999F]">
-                Select event photos to add them here.
               </p>
 
             </div>
@@ -218,20 +212,9 @@ export default function EventCartDrawer({
 
                     <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
 
-                      <div>
-
-                        <p className="text-xs font-bold uppercase tracking-[0.09em] text-[#819399]">
-                          Photo
-                          {" "}
-                          {index + 1}
-                        </p>
-
-
-                        <p className="mt-1 text-sm font-semibold text-[#355963]">
-                          Selected
-                        </p>
-
-                      </div>
+                      <p className="text-sm font-semibold text-[#355963]">
+                        Photo {index + 1}
+                      </p>
 
 
                       <button
@@ -241,7 +224,7 @@ export default function EventCartDrawer({
                             photo.id
                           )
                         }
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#E5E9EA] text-[#8A7A7D] transition hover:border-[#EFCED2] hover:bg-[#FFF5F5] hover:text-[#AD505A]"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#E5E9EA] text-[#8A7A7D] transition hover:bg-[#FFF5F5] hover:text-[#AD505A]"
                       >
 
                         <Trash2 className="h-4 w-4" />
@@ -261,8 +244,6 @@ export default function EventCartDrawer({
 
         </div>
 
-
-        {/* PRICE SUMMARY */}
 
         {selectedPhotos.length > 0 && (
 
@@ -301,17 +282,12 @@ export default function EventCartDrawer({
                       </p>
 
 
-                      <p className="mt-0.5 text-[11px] leading-5 text-[#698B84]">
+                      <p className="mt-0.5 text-[11px] text-[#698B84]">
 
                         {quote.bundle.bundle_count}
                         {" × "}
-
                         {quote.bundle.quantity}
                         {"-photo bundle"}
-
-                        {quote.bundle.bundle_count > 1
-                          ? "s"
-                          : ""}
 
                       </p>
 
@@ -324,11 +300,12 @@ export default function EventCartDrawer({
 
                 <div className="space-y-2.5 text-sm">
 
-                  <div className="flex items-center justify-between gap-4 text-[#72858B]">
+                  <div className="flex justify-between text-[#72858B]">
 
                     <span>
                       Regular price
                     </span>
+
 
                     <span>
                       RM
@@ -345,11 +322,12 @@ export default function EventCartDrawer({
 
                   {quote.pricing.savings_rm > 0 && (
 
-                    <div className="flex items-center justify-between gap-4 font-semibold text-[#16856F]">
+                    <div className="flex justify-between font-semibold text-[#16856F]">
 
                       <span>
                         Bundle savings
                       </span>
+
 
                       <span>
                         − RM
@@ -369,22 +347,11 @@ export default function EventCartDrawer({
                   <div className="my-3 border-t border-[#E2EAEC]" />
 
 
-                  <div className="flex items-end justify-between gap-4">
+                  <div className="flex items-end justify-between">
 
-                    <div>
-
-                      <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#8A9BA0]">
-                        Total
-                      </p>
-
-
-                      <p className="mt-1 text-[11px] text-[#8A9BA0]">
-                        {quote.selected_count}
-                        {" "}
-                        selected
-                      </p>
-
-                    </div>
+                    <span className="font-semibold text-[#49656D]">
+                      Total
+                    </span>
 
 
                     <p className="text-2xl font-semibold tracking-[-0.035em] text-[#123D48]">
@@ -410,16 +377,20 @@ export default function EventCartDrawer({
 
             <button
               type="button"
-              disabled
-              className="mt-5 h-12 w-full rounded-xl bg-[#073B4C] text-sm font-semibold text-white opacity-55"
+              disabled={
+                quoteLoading
+                || !quote
+                || Boolean(
+                  quoteError
+                )
+              }
+              onClick={
+                onCheckout
+              }
+              className="mt-5 h-12 w-full rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Continue to checkout
             </button>
-
-
-            <p className="mt-2 text-center text-[10px] text-[#98A5A9]">
-              Checkout comes in the next phase.
-            </p>
 
 
             <button
