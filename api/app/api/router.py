@@ -56,6 +56,14 @@ from app.api.routes.public_event_face_search import (
     router as public_event_face_search_router,
 )
 
+from app.api.routes.public_event_orders import (
+    router as public_event_orders_router,
+)
+
+from app.api.routes.public_event_payments import (
+    router as public_event_payments_router,
+)
+
 from app.api.routes.public_event_sales import (
     router as public_event_sales_router,
 )
@@ -78,10 +86,6 @@ from app.api.routes.website import (
 
 from app.api.routes.workspaces import (
     router as workspaces_router,
-)
-
-from app.api.routes.public_event_orders import (
-    router as public_event_orders_router,
 )
 
 
@@ -170,4 +174,8 @@ api_router.include_router(
 
 api_router.include_router(
     public_event_orders_router
+)
+
+api_router.include_router(
+    public_event_payments_router
 )

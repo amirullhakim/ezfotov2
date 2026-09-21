@@ -1,11 +1,14 @@
 "use client"
 
 import {
+  ArrowUpRight,
   CheckCircle2,
   Clock3,
+  Landmark,
   Loader2,
   Mail,
   ReceiptText,
+  ShieldCheck,
   UserRound,
   X,
 } from "lucide-react"
@@ -46,6 +49,10 @@ type CreateOrderResponse = {
     expires_at: string | null
   }
 
+  access: {
+    token: string
+  }
+
   pricing: {
     regular_subtotal_cents: number
     regular_subtotal_rm: number
@@ -60,7 +67,29 @@ type CreateOrderResponse = {
   payment: {
     required: boolean
     ready: boolean
+    provider: string
     message: string
+  }
+}
+
+
+type StartPaymentResponse = {
+  order: {
+    order_number: string
+    status: string
+    currency: string
+
+    total_cents: number
+    total_rm: number
+  }
+
+  payment: {
+    provider: string
+    purchase_id: string
+    checkout_url: string
+
+    reused: boolean
+    mode: string
   }
 }
 
@@ -104,6 +133,13 @@ export default function EventCheckoutModal({
   const [
     submitting,
     setSubmitting,
+  ] = useState(
+    false
+  )
+
+  const [
+    paymentStarting,
+    setPaymentStarting,
   ] = useState(
     false
   )
@@ -243,8 +279,12 @@ export default function EventCheckoutModal({
       }
 
 
-      setCreatedOrder(
+      const result =
         payload as CreateOrderResponse
+
+
+      setCreatedOrder(
+        result
       )
 
       onOrderCreated()
@@ -260,6 +300,111 @@ export default function EventCheckoutModal({
 
     } finally {
       setSubmitting(
+        false
+      )
+    }
+  }
+
+
+  async function startFpxPayment() {
+    if (!createdOrder) {
+      return
+    }
+
+
+    setPaymentStarting(
+      true
+    )
+
+    setErrorMessage(
+      ""
+    )
+
+
+    try {
+      const response =
+        await fetch(
+          `${API_URL}/api/public/events/${encodeURIComponent(
+            workspaceSlug
+          )}/${encodeURIComponent(
+            eventSlug
+          )}/orders/${encodeURIComponent(
+            createdOrder
+              .order
+              .order_number
+          )}/payment`,
+          {
+            method:
+              "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body:
+              JSON.stringify({
+                access_token:
+                  createdOrder
+                    .access
+                    .token,
+              }),
+          }
+        )
+
+
+      const payload =
+        (
+          await response.json()
+        ) as (
+          StartPaymentResponse
+          | {
+              detail?: string
+            }
+        )
+
+
+      if (!response.ok) {
+        throw new Error(
+          "detail" in payload
+            && payload.detail
+            ? payload.detail
+            : "Unable to start FPX payment."
+        )
+      }
+
+
+      const result =
+        payload as StartPaymentResponse
+
+
+      if (
+        !result
+          .payment
+          .checkout_url
+      ) {
+        throw new Error(
+          "Payment checkout is unavailable."
+        )
+      }
+
+
+      window.location.assign(
+        result
+          .payment
+          .checkout_url
+      )
+
+    } catch (
+      error
+    ) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to start FPX payment."
+      )
+
+      setPaymentStarting(
         false
       )
     }
@@ -287,12 +432,12 @@ export default function EventCheckoutModal({
 
 
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#173D47]">
-              Your photos are reserved
+              Complete your payment
             </h2>
 
 
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#74878E]">
-              Your order has been created successfully. Payment will be connected in the next phase.
+              Your selected photos are reserved. Continue with FPX to complete your purchase.
             </p>
 
 
@@ -365,6 +510,7 @@ export default function EventCheckoutModal({
                     {createdOrder.pricing.discount_rm > 0 && (
 
                       <p className="mt-1 text-xs font-medium text-[#16856F]">
+
                         RM
                         {createdOrder
                           .pricing
@@ -374,6 +520,7 @@ export default function EventCheckoutModal({
                           )}
                         {" "}
                         saved
+
                       </p>
 
                     )}
@@ -400,6 +547,27 @@ export default function EventCheckoutModal({
             </div>
 
 
+            <div className="mt-4 flex items-start gap-3 rounded-[16px] border border-[#D7E8E9] bg-[#F5FAFA] px-4 py-3 text-left">
+
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#16856F]" />
+
+
+              <div>
+
+                <p className="text-xs font-semibold text-[#45676F]">
+                  Secure FPX Online Banking
+                </p>
+
+
+                <p className="mt-0.5 text-[11px] leading-5 text-[#7C9096]">
+                  You&apos;ll continue to the secure payment page to choose your bank and authorize the transaction.
+                </p>
+
+              </div>
+
+            </div>
+
+
             {createdOrder.order.expires_at && (
 
               <div className="mt-4 flex items-center justify-center gap-2 text-xs text-[#7D9096]">
@@ -413,14 +581,64 @@ export default function EventCheckoutModal({
             )}
 
 
+            {errorMessage && (
+
+              <div className="mt-4 rounded-xl border border-[#F0CDD1] bg-[#FFF7F7] px-4 py-3 text-sm font-medium text-[#A44C56]">
+                {errorMessage}
+              </div>
+
+            )}
+
+
             <button
               type="button"
+              disabled={
+                paymentStarting
+              }
+              onClick={
+                startFpxPayment
+              }
+              className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:cursor-not-allowed disabled:opacity-55"
+            >
+
+              {paymentStarting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+
+                  Opening FPX...
+                </>
+              ) : (
+                <>
+                  <Landmark className="h-4 w-4" />
+
+                  Pay RM
+                  {createdOrder
+                    .pricing
+                    .total_rm
+                    .toFixed(
+                      2
+                    )}
+                  {" "}
+                  with FPX
+
+                  <ArrowUpRight className="h-4 w-4" />
+                </>
+              )}
+
+            </button>
+
+
+            <button
+              type="button"
+              disabled={
+                paymentStarting
+              }
               onClick={
                 onClose
               }
-              className="mt-6 h-12 w-full rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363]"
+              className="mt-3 h-11 w-full rounded-xl text-sm font-semibold text-[#71868C] transition hover:bg-[#F6F9FA] disabled:opacity-50"
             >
-              Done
+              Close
             </button>
 
           </div>
@@ -436,8 +654,6 @@ export default function EventCheckoutModal({
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-[#071D24]/65 p-4 backdrop-blur-sm">
 
       <div className="w-full max-w-[560px] overflow-hidden rounded-[28px] border border-[#DCE8EA] bg-white shadow-[0_24px_80px_rgba(6,36,46,0.25)]">
-
-        {/* HEADER */}
 
         <div className="flex items-start justify-between gap-4 border-b border-[#E0E9EB] px-6 py-5">
 
@@ -475,8 +691,6 @@ export default function EventCheckoutModal({
 
         <div className="max-h-[78vh] overflow-y-auto p-6">
 
-          {/* NAME */}
-
           <label className="block">
 
             <span className="text-xs font-semibold text-[#46636B]">
@@ -513,8 +727,6 @@ export default function EventCheckoutModal({
 
           </label>
 
-
-          {/* EMAIL */}
 
           <label className="mt-4 block">
 
@@ -555,11 +767,9 @@ export default function EventCheckoutModal({
 
 
           <p className="mt-2 text-[11px] leading-5 text-[#8B9BA0]">
-            We&apos;ll use this email for your payment confirmation and photo delivery later.
+            We&apos;ll use this email for your payment confirmation and photo delivery.
           </p>
 
-
-          {/* ORDER SUMMARY */}
 
           {quote && (
 
@@ -591,6 +801,7 @@ export default function EventCheckoutModal({
 
 
                   <span>
+
                     RM
                     {quote
                       .pricing
@@ -598,6 +809,7 @@ export default function EventCheckoutModal({
                       .toFixed(
                         2
                       )}
+
                   </span>
 
                 </div>
@@ -613,6 +825,7 @@ export default function EventCheckoutModal({
 
 
                     <span>
+
                       − RM
                       {quote
                         .pricing
@@ -620,6 +833,7 @@ export default function EventCheckoutModal({
                         .toFixed(
                           2
                         )}
+
                     </span>
 
                   </div>
@@ -690,7 +904,7 @@ export default function EventCheckoutModal({
               <>
                 <ReceiptText className="h-4 w-4" />
 
-                Create order
+                Continue to payment
               </>
             )}
 
@@ -698,7 +912,7 @@ export default function EventCheckoutModal({
 
 
           <p className="mt-3 text-center text-[10px] leading-4 text-[#98A6AA]">
-            Payment is not charged yet. The next phase will connect the payment gateway.
+            Your payable amount is calculated and verified securely by EZFOTOO.
           </p>
 
         </div>

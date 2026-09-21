@@ -64,6 +64,23 @@ class Settings(BaseSettings):
     gallery_access_secret: str | None = None
 
     # --------------------------------------------------
+    # Event Order Access
+    # --------------------------------------------------
+    event_order_access_secret: str | None = None
+
+    # --------------------------------------------------
+    # CHIP / FPX
+    # --------------------------------------------------
+    chip_mode: str = "test"
+
+    chip_api_base_url: str = (
+        "https://gate.chip-in.asia/api/v1"
+    )
+
+    chip_brand_id: str | None = None
+    chip_api_key: str | None = None
+
+    # --------------------------------------------------
     # Redis
     # --------------------------------------------------
     redis_url: str | None = None

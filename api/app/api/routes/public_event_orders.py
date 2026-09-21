@@ -40,6 +40,10 @@ from app.models import (
     EventOrderItem,
 )
 
+from app.services.event_order_access import (
+    create_event_order_access_token,
+)
+
 from app.services.event_sales_pricing import (
     MAX_CART_PHOTOS,
     calculate_event_sales_quote,
@@ -94,12 +98,10 @@ class PublicCreateOrderRequest(
             .split()
         )
 
-
         if len(cleaned) < 2:
             raise ValueError(
                 "Enter your name."
             )
-
 
         return cleaned
 
@@ -118,14 +120,12 @@ class PublicCreateOrderRequest(
             .lower()
         )
 
-
         if not EMAIL_PATTERN.match(
             cleaned
         ):
             raise ValueError(
                 "Enter a valid email address."
             )
-
 
         return cleaned
 
@@ -151,22 +151,20 @@ def generate_order_number(
         )
     )
 
-
     for _ in range(
         10
     ):
         random_part = (
-            secrets.token_hex(
+            secrets
+            .token_hex(
                 4
             )
             .upper()
         )
 
-
         order_number = (
             f"EZF-{date_part}-{random_part}"
         )
-
 
         existing = db.scalar(
             select(
@@ -177,10 +175,8 @@ def generate_order_number(
             )
         )
 
-
         if existing is None:
             return order_number
-
 
     raise RuntimeError(
         "Unable to generate a unique order number."
@@ -209,7 +205,6 @@ def create_public_event_order(
         )
     )
 
-
     event = get_public_live_event(
         db=db,
         workspace=
@@ -217,7 +212,6 @@ def create_public_event_order(
         event_slug=
             event_slug,
     )
-
 
     if not event_sales_open(
         event
@@ -258,11 +252,9 @@ def create_public_event_order(
             )
         )
 
-
         now = datetime.now(
             timezone.utc
         )
-
 
         expires_at = (
             now
@@ -271,7 +263,6 @@ def create_public_event_order(
                     ORDER_EXPIRY_MINUTES
             )
         )
-
 
         order = EventOrder(
             workspace_id=
@@ -323,12 +314,18 @@ def create_public_event_order(
                 expires_at,
         )
 
-
         db.add(
             order
         )
 
         db.flush()
+
+
+        access_token = (
+            create_event_order_access_token(
+                order.id
+            )
+        )
 
 
         for photo in quote.photos:
@@ -401,6 +398,11 @@ def create_public_event_order(
                 order.expires_at,
         },
 
+        "access": {
+            "token":
+                access_token,
+        },
+
         "pricing": {
             "regular_subtotal_cents":
                 order.regular_subtotal_cents,
@@ -432,11 +434,12 @@ def create_public_event_order(
                 True,
 
             "ready":
-                False,
+                True,
 
-            "message": (
-                "Payment integration is not "
-                "enabled yet."
-            ),
+            "provider":
+                "CHIP_FPX",
+
+            "message":
+                "FPX payment is ready.",
         },
     }
