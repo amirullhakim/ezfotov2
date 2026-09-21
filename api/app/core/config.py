@@ -80,6 +80,15 @@ class Settings(BaseSettings):
     chip_brand_id: str | None = None
     chip_api_key: str | None = None
 
+    # Public HTTPS endpoint that CHIP can call.
+    #
+    # Development example:
+    # https://xxxx.trycloudflare.com/api/payments/chip/webhook
+    #
+    # Production:
+    # https://api.ezfotoo.com/api/payments/chip/webhook
+    chip_callback_url: str | None = None
+
     # --------------------------------------------------
     # Redis
     # --------------------------------------------------

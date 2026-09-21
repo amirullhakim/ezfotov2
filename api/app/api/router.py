@@ -8,6 +8,10 @@ from app.api.routes.auth import (
     router as auth_router,
 )
 
+from app.api.routes.chip_webhooks import (
+    router as chip_webhooks_router,
+)
+
 from app.api.routes.client_galleries import (
     router as client_galleries_router,
 )
@@ -178,4 +182,8 @@ api_router.include_router(
 
 api_router.include_router(
     public_event_payments_router
+)
+
+api_router.include_router(
+    chip_webhooks_router
 )
