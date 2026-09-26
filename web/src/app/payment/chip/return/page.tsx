@@ -1,5 +1,8 @@
 "use client"
 
+/* Signed private R2 images must bypass Next.js image optimization. */
+/* eslint-disable @next/next/no-img-element */
+
 import Link from "next/link"
 
 import {
@@ -11,12 +14,14 @@ import {
   Loader2,
   RefreshCw,
   ShieldCheck,
+  X,
   XCircle,
 } from "lucide-react"
 
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react"
 
@@ -98,6 +103,7 @@ type OrderDownloadsResponse = {
       content_type: string
       size_bytes: number
       download_url: string
+      view_url?: string | null
     }>
   }
 }
@@ -193,6 +199,9 @@ function formatBytes(
 
 
 export default function ChipReturnPage() {
+  const closeViewerButtonRef = useRef<HTMLButtonElement | null>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
+
   const [
     orderNumber,
     setOrderNumber,
@@ -299,6 +308,33 @@ export default function ChipReturnPage() {
   ] = useState(
     0
   )
+
+  const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!selectedPhotoId) return
+
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    closeViewerButtonRef.current?.focus()
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelectedPhotoId(null)
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener("keydown", handleKeyDown)
+      previousFocusRef.current?.focus()
+    }
+  }, [selectedPhotoId])
 
 
   const fetchOrderStatus =
@@ -723,6 +759,10 @@ export default function ChipReturnPage() {
 
   const paid =
     verificationState === "paid"
+
+  const selectedPhoto = downloads?.items.find(
+    (item) => item.photo_id === selectedPhotoId
+  )
 
   const pending =
     verificationState === "pending"
@@ -1217,7 +1257,7 @@ export default function ChipReturnPage() {
                   )} minutes.
                 </p>
 
-                <div className="space-y-2">
+                <div className="grid gap-4 sm:grid-cols-2">
 
                   {downloads.items.map(
                     (
@@ -1225,41 +1265,49 @@ export default function ChipReturnPage() {
                       index
                     ) => (
 
-                      <div
+                      <article
                         key={item.photo_id}
-                        className="flex items-center gap-3 rounded-[14px] border border-[#E1EAEC] bg-[#F9FBFB] p-3"
+                        className="overflow-hidden rounded-[14px] border border-[#E1EAEC] bg-white"
                       >
-
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm">
-                          <FileImage className="h-4 w-4 text-[#168792]" />
+                        <div className="flex aspect-[4/3] items-center justify-center bg-[#F3F8F8]">
+                          {item.view_url ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPhotoId(item.photo_id)}
+                              aria-label={`View ${item.filename || `photo ${index + 1}`} full size`}
+                              className="flex h-full w-full items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0D5C68]"
+                            >
+                              <img
+                                src={item.view_url}
+                                alt={`Purchased photo ${index + 1}: ${item.filename}`}
+                                loading="lazy"
+                                decoding="async"
+                                referrerPolicy="no-referrer"
+                                className="h-full w-full cursor-zoom-in object-contain"
+                              />
+                            </button>
+                          ) : (
+                            <FileImage aria-hidden="true" className="h-10 w-10 text-[#9ABBC0]" />
+                          )}
                         </div>
 
-
-                        <div className="min-w-0 flex-1">
-
-                          <p className="truncate text-xs font-semibold text-[#355B65]">
+                        <div className="p-3">
+                          <p className="truncate text-xs font-semibold text-[#355B65]" title={item.filename}>
                             {item.filename || `Photo ${index + 1}`}
                           </p>
-
-
                           <p className="mt-0.5 text-[10px] text-[#87989D]">
-                            {formatBytes(
-                              item.size_bytes
-                            )}
+                            {formatBytes(item.size_bytes)}
                           </p>
-
+                          <a
+                            href={item.download_url}
+                            aria-label={`Download ${item.filename || `photo ${index + 1}`}`}
+                            className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[#073B4C] px-3 text-[11px] font-semibold text-white transition hover:bg-[#0B5363]"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            Download
+                          </a>
                         </div>
-
-
-                        <a
-                          href={item.download_url}
-                          className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#073B4C] px-3 text-[11px] font-semibold text-white transition hover:bg-[#0B5363]"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          Download
-                        </a>
-
-                      </div>
+                      </article>
 
                     )
                   )}
@@ -1270,6 +1318,7 @@ export default function ChipReturnPage() {
                 <button
                   type="button"
                   onClick={() => {
+                    setSelectedPhotoId(null)
                     setDownloadRefreshNonce(
                       (
                         current
@@ -1375,6 +1424,56 @@ export default function ChipReturnPage() {
 
       </div>
 
+      {selectedPhoto?.view_url && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="photo-viewer-title"
+          className="fixed inset-0 z-50 flex flex-col bg-[#061B22]/95 p-4 text-white sm:p-6"
+        >
+          <button
+            type="button"
+            aria-label="Close photo viewer"
+            onClick={() => setSelectedPhotoId(null)}
+            className="absolute inset-0 cursor-default"
+          />
+
+          <div className="relative mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
+            <p id="photo-viewer-title" className="min-w-0 truncate text-sm font-medium">
+              {selectedPhoto.filename || "Purchased photo"}
+            </p>
+
+            <button
+              ref={closeViewerButtonRef}
+              type="button"
+              onClick={() => setSelectedPhotoId(null)}
+              aria-label="Close photo viewer"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="pointer-events-none relative flex min-h-0 flex-1 items-center justify-center py-5">
+            <img
+              src={selectedPhoto.view_url}
+              alt={selectedPhoto.filename || "Purchased photo"}
+              referrerPolicy="no-referrer"
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+
+          <div className="relative mx-auto flex w-full max-w-7xl justify-center">
+            <a
+              href={selectedPhoto.download_url}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-semibold text-[#073B4C] hover:bg-[#E7F8F3]"
+            >
+              <Download className="h-4 w-4" />
+              Download photo
+            </a>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
