@@ -18,6 +18,7 @@ from uuid import UUID
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     HTTPException,
     status,
@@ -51,6 +52,8 @@ from app.services.event_order_access import (
     verify_event_order_access_token,
 )
 
+from app.services.event_order_delivery import send_paid_order_confirmation
+
 from app.services.event_sales_pricing import (
     MAX_CART_PHOTOS,
     calculate_event_sales_quote,
@@ -64,6 +67,7 @@ from app.services.chip_payments import (
 from app.services.private_storage import (
     PrivateStorageError,
     generate_private_download_url,
+    generate_private_view_url,
 )
 
 
@@ -809,6 +813,7 @@ def create_public_event_order(
 def get_public_event_order_status(
     order_number: str,
     payload: PublicOrderStatusRequest,
+    background_tasks: BackgroundTasks,
 
     db: Session = Depends(
         get_db
@@ -852,6 +857,12 @@ def get_public_event_order_status(
         db=db,
         order=order,
     )
+
+    if order.status == "PAID":
+        background_tasks.add_task(
+            send_paid_order_confirmation,
+            order.id,
+        )
 
     return {
         "order": {
@@ -1005,10 +1016,27 @@ def get_public_event_order_downloads(
                 )
             )
 
+            view_url = None
+
+            if (photo.content_type or "").split(";", 1)[0].strip().lower() in {
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "image/avif",
+                "image/gif",
+            }:
+                view_url = generate_private_view_url(
+                    object_key=photo.original_object_key,
+                    expires_seconds=PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS,
+                )
+
             download_items.append(
                 {
                     "photo_id":
                         str(photo.id),
+
+                    "view_url":
+                        view_url,
 
                     "filename":
                         photo.original_filename,
@@ -1096,4 +1124,3 @@ def get_public_event_order_downloads(
                 download_items,
         },
     }
-

@@ -84,50 +84,26 @@ class EventOrder(TimestampMixin, Base):
         default=uuid.uuid4,
     )
 
-    # --------------------------------------------------
-    # OWNERSHIP
-    # --------------------------------------------------
-
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey(
-            "workspaces.id",
-            ondelete="CASCADE",
-        ),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
 
     event_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey(
-            "event_galleries.id",
-            ondelete="RESTRICT",
-        ),
+        ForeignKey("event_galleries.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
 
-    # --------------------------------------------------
-    # PUBLIC ORDER IDENTITY
-    # --------------------------------------------------
-    #
-    # Example:
-    #
-    # EZF-20260921-A1B2C3D4
-    #
-    # Customers should see this instead of the raw UUID.
-    #
     order_number: Mapped[str] = mapped_column(
         String(40),
         nullable=False,
         unique=True,
         index=True,
     )
-
-    # --------------------------------------------------
-    # CUSTOMER
-    # --------------------------------------------------
 
     customer_name: Mapped[str] = mapped_column(
         String(150),
@@ -140,44 +116,12 @@ class EventOrder(TimestampMixin, Base):
         index=True,
     )
 
-    # --------------------------------------------------
-    # ORDER STATUS
-    # --------------------------------------------------
-    #
-    # PENDING_PAYMENT
-    #   Order has been created but payment has not
-    #   been confirmed.
-    #
-    # PAID
-    #   Payment has been successfully verified.
-    #
-    # PAYMENT_FAILED
-    #   Payment attempt failed.
-    #
-    # CANCELLED
-    #   Order was cancelled.
-    #
-    # EXPIRED
-    #   Pending payment was not completed in time.
-    #
-    # REFUNDED
-    #   Paid order was refunded.
-    #
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
         default="PENDING_PAYMENT",
         index=True,
     )
-
-    # --------------------------------------------------
-    # PRICE SNAPSHOT
-    # --------------------------------------------------
-    #
-    # Pricing is copied into the order when it is
-    # created so later changes to event pricing do not
-    # change historical orders.
-    #
 
     currency: Mapped[str] = mapped_column(
         String(3),
@@ -222,10 +166,6 @@ class EventOrder(TimestampMixin, Base):
         nullable=False,
     )
 
-    # --------------------------------------------------
-    # BUNDLE SNAPSHOT
-    # --------------------------------------------------
-
     bundle_quantity: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -243,16 +183,6 @@ class EventOrder(TimestampMixin, Base):
         nullable=False,
         default=0,
     )
-
-    # --------------------------------------------------
-    # PAYMENT
-    # --------------------------------------------------
-    #
-    # We keep these nullable for now.
-    #
-    # ToyyibPay / FPX will populate them in the
-    # payment phase.
-    #
 
     payment_provider: Mapped[str | None] = mapped_column(
         String(50),
@@ -281,4 +211,20 @@ class EventOrder(TimestampMixin, Base):
         DateTime(timezone=True),
         nullable=True,
         index=True,
+    )
+
+    confirmation_email_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    confirmation_email_claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    confirmation_email_attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
     )

@@ -95,9 +95,11 @@ class Settings(BaseSettings):
     redis_url: str | None = None
 
     # --------------------------------------------------
-    # Email
+    # Email / Resend
     # --------------------------------------------------
     resend_api_key: str | None = None
+    resend_from_email: str = "orders@mail.ezfotoo.com"
+    resend_from_name: str = "EZFOTOO"
 
     model_config = SettingsConfigDict(
         env_file=".env",

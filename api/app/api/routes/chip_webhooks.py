@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     HTTPException,
     Request,
@@ -29,6 +30,8 @@ from app.core.config import settings
 from app.db.session import get_db
 
 from app.models import EventOrder
+
+from app.services.event_order_delivery import send_paid_order_confirmation
 
 from app.services.chip_payments import (
     ChipPaymentError,
@@ -390,6 +393,7 @@ def _validate_purchase(
 )
 async def chip_payment_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
 
     db: Session = Depends(
         get_db
@@ -633,6 +637,11 @@ async def chip_payment_webhook(
 
         db.commit()
 
+        if order.status == "PAID":
+            background_tasks.add_task(
+                send_paid_order_confirmation,
+                order.id,
+            )
 
         return {
             "received":
