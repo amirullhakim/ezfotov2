@@ -7,6 +7,7 @@ import {
   Clock3,
   Download,
   FileImage,
+  Landmark,
   Loader2,
   RefreshCw,
   ShieldCheck,
@@ -37,6 +38,10 @@ const ORDER_RETURN_PATH_STORAGE_PREFIX =
   "ezfotoo:event-order-return:"
 
 
+const ORDER_PAYMENT_PATH_STORAGE_PREFIX =
+  "ezfotoo:event-order-payment-path:"
+
+
 const MAX_STATUS_ATTEMPTS = 12
 const STATUS_RETRY_DELAY_MS = 1500
 
@@ -51,6 +56,25 @@ type OrderStatusResponse = {
     total_rm: number
     paid_at: string | null
     expires_at: string | null
+  }
+}
+
+
+type StartPaymentResponse = {
+  order: {
+    order_number: string
+    status: string
+    currency: string
+    total_cents: number
+    total_rm: number
+  }
+
+  payment: {
+    provider: string
+    purchase_id: string
+    checkout_url: string
+    reused: boolean
+    mode: string
   }
 }
 
@@ -105,6 +129,15 @@ function orderReturnPathStorageKey(
 ) {
   return (
     `${ORDER_RETURN_PATH_STORAGE_PREFIX}${orderNumber}`
+  )
+}
+
+
+function orderPaymentPathStorageKey(
+  orderNumber: string
+) {
+  return (
+    `${ORDER_PAYMENT_PATH_STORAGE_PREFIX}${orderNumber}`
   )
 }
 
@@ -173,6 +206,35 @@ export default function ChipReturnPage() {
   ] = useState(
     "/"
   )
+
+  const [
+    returnResult,
+    setReturnResult,
+  ] = useState(
+    ""
+  )
+
+  const [
+    paymentPath,
+    setPaymentPath,
+  ] = useState(
+    ""
+  )
+
+  const [
+    paymentStarting,
+    setPaymentStarting,
+  ] = useState(
+    false
+  )
+
+  const [
+    paymentStartError,
+    setPaymentStartError,
+  ] = useState(
+    ""
+  )
+
 
   const [
     verificationState,
@@ -308,6 +370,22 @@ export default function ChipReturnPage() {
         )
 
 
+      const currentResult =
+        (
+          params.get(
+            "result"
+          )
+          || ""
+        )
+          .trim()
+          .toLowerCase()
+
+
+      setReturnResult(
+        currentResult
+      )
+
+
       const currentOrderNumber =
         (
           params.get(
@@ -369,6 +447,29 @@ export default function ChipReturnPage() {
         ) {
           setReturnPath(
             storedReturnPath
+          )
+        }
+
+
+        const storedPaymentPath =
+          window.sessionStorage.getItem(
+            orderPaymentPathStorageKey(
+              currentOrderNumber
+            )
+          )
+
+
+        if (
+          storedPaymentPath
+          && storedPaymentPath.startsWith(
+            "/api/public/events/"
+          )
+          && !storedPaymentPath.startsWith(
+            "//"
+          )
+        ) {
+          setPaymentPath(
+            storedPaymentPath
           )
         }
 
@@ -507,6 +608,119 @@ export default function ChipReturnPage() {
   )
 
 
+  async function startPaymentAgain() {
+    if (
+      !orderNumber
+      || !accessToken
+      || !paymentPath
+    ) {
+      setPaymentStartError(
+        "This browser session does not have the payment details needed to continue this order."
+      )
+
+      return
+    }
+
+
+    setPaymentStarting(
+      true
+    )
+
+    setPaymentStartError(
+      ""
+    )
+
+
+    try {
+      const response =
+        await fetch(
+          `${API_URL}${paymentPath}`,
+          {
+            method:
+              "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body:
+              JSON.stringify({
+                access_token:
+                  accessToken,
+              }),
+
+            cache:
+              "no-store",
+          }
+        )
+
+
+      const payload =
+        (
+          await response.json()
+        ) as (
+          StartPaymentResponse
+          | {
+              detail?: string
+            }
+        )
+
+
+      if (!response.ok) {
+        throw new Error(
+          "detail" in payload
+            && payload.detail
+            ? payload.detail
+            : "Unable to continue FPX payment."
+        )
+      }
+
+
+      const result =
+        payload as StartPaymentResponse
+
+
+      if (
+        !result
+          .payment
+          .checkout_url
+      ) {
+        throw new Error(
+          "Payment checkout is unavailable."
+        )
+      }
+
+
+      window.location.assign(
+        result
+          .payment
+          .checkout_url
+      )
+
+    } catch (
+      error
+    ) {
+      setPaymentStartError(
+        error instanceof Error
+          ? error.message
+          : "Unable to continue FPX payment."
+      )
+
+      setPaymentStarting(
+        false
+      )
+
+      setRetryNonce(
+        (
+          current
+        ) =>
+          current + 1
+      )
+    }
+  }
+
+
   const paid =
     verificationState === "paid"
 
@@ -533,6 +747,11 @@ export default function ChipReturnPage() {
 
   const error =
     verificationState === "error"
+
+
+  const returnedWithoutPayment =
+    pending
+    && returnResult === "cancelled"
 
 
   const negative =
@@ -683,11 +902,19 @@ export default function ChipReturnPage() {
       "Your payment has been securely confirmed. Your original photos are ready to download."
 
   } else if (pending) {
-    title =
-      "Payment is being confirmed"
+    if (returnedWithoutPayment) {
+      title =
+        "Payment not completed"
 
-    description =
-      "The payment provider has returned you to EZFOTOO, but confirmation is still processing. You can check again in a moment."
+      description =
+        "You returned before completing FPX. Your order is still reserved for a limited time, so you can continue the same payment."
+    } else {
+      title =
+        "Payment is being confirmed"
+
+      description =
+        "The payment provider has returned you to EZFOTOO, but confirmation is still processing. You can check again in a moment."
+    }
 
   } else if (failed) {
     title =
@@ -1065,6 +1292,45 @@ export default function ChipReturnPage() {
         )}
 
 
+        {paymentStartError && (
+
+          <div className="mt-5 rounded-[14px] border border-[#F0DCDD] bg-[#FFF7F7] px-4 py-3 text-left text-xs leading-5 text-[#94545C]">
+            {paymentStartError}
+          </div>
+
+        )}
+
+
+        {returnedWithoutPayment && paymentPath && accessToken && (
+
+          <button
+            type="button"
+            disabled={
+              paymentStarting
+            }
+            onClick={
+              startPaymentAgain
+            }
+            className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:cursor-not-allowed disabled:opacity-55"
+          >
+
+            {paymentStarting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Opening FPX...
+              </>
+            ) : (
+              <>
+                <Landmark className="h-4 w-4" />
+                Try payment again
+              </>
+            )}
+
+          </button>
+
+        )}
+
+
         {(pending || error) && (
 
           <button
@@ -1091,9 +1357,13 @@ export default function ChipReturnPage() {
           href={
             returnPath
           }
-          className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363]"
+          className={
+            returnedWithoutPayment
+              ? "mt-4 flex h-12 w-full items-center justify-center rounded-xl border border-[#D4E2E5] bg-white text-sm font-semibold text-[#45666F] transition hover:bg-[#F6FAFA]"
+              : "mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363]"
+          }
         >
-          {paid
+          {paid || returnedWithoutPayment
             ? "Return to event gallery"
             : "Return to EZFOTOO"}
         </Link>

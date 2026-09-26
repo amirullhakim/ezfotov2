@@ -432,6 +432,51 @@ def _reconcile_pending_chip_order(
         )
 
 
+def _expire_pending_order_if_needed(
+    *,
+    db: Session,
+    order: EventOrder,
+) -> None:
+    if order.status != "PENDING_PAYMENT":
+        return
+
+    if order.expires_at is None:
+        return
+
+    expires_at = order.expires_at
+
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(
+            tzinfo=timezone.utc
+        )
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    if now < expires_at:
+        return
+
+    order.status = "EXPIRED"
+
+    try:
+        db.commit()
+        db.refresh(
+            order
+        )
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Unable to expire the order."
+            ),
+        )
+
+
 def generate_order_number(
     db: Session,
 ) -> str:
@@ -799,6 +844,11 @@ def get_public_event_order_status(
         )
 
     _reconcile_pending_chip_order(
+        db=db,
+        order=order,
+    )
+
+    _expire_pending_order_if_needed(
         db=db,
         order=order,
     )

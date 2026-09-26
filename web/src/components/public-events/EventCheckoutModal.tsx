@@ -40,6 +40,10 @@ const ORDER_RETURN_PATH_STORAGE_PREFIX =
   "ezfotoo:event-order-return:"
 
 
+const ORDER_PAYMENT_PATH_STORAGE_PREFIX =
+  "ezfotoo:event-order-payment-path:"
+
+
 function orderAccessStorageKey(
   orderNumber: string
 ) {
@@ -54,6 +58,15 @@ function orderReturnPathStorageKey(
 ) {
   return (
     `${ORDER_RETURN_PATH_STORAGE_PREFIX}${orderNumber}`
+  )
+}
+
+
+function orderPaymentPathStorageKey(
+  orderNumber: string
+) {
+  return (
+    `${ORDER_PAYMENT_PATH_STORAGE_PREFIX}${orderNumber}`
   )
 }
 
@@ -362,6 +375,19 @@ export default function EventCheckoutModal({
             result.order.order_number
           ),
           `${window.location.pathname}${window.location.search}`
+        )
+
+        window.sessionStorage.setItem(
+          orderPaymentPathStorageKey(
+            result.order.order_number
+          ),
+          `/api/public/events/${encodeURIComponent(
+            workspaceSlug
+          )}/${encodeURIComponent(
+            eventSlug
+          )}/orders/${encodeURIComponent(
+            result.order.order_number
+          )}/payment`
         )
       } catch {
         // Payment can still continue if browser storage is unavailable.
