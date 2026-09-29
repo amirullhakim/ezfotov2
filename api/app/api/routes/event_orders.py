@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
@@ -127,6 +129,108 @@ def list_event_orders(
     }
 
 
+@router.get("/analytics")
+def get_event_order_analytics(
+    response: Response,
+    currency: str = Query(
+        "MYR",
+        min_length=3,
+        max_length=3,
+        pattern=r"^[A-Za-z]{3}$",
+    ),
+    event_id: UUID | None = Query(None),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+
+    workspace, _ = get_user_workspace(current_user["id"], db)
+    require_workspace_service(workspace.id, "EVENT_SALES", db)
+
+    selected_currency = currency.upper()
+    filters = [
+        EventOrder.workspace_id == workspace.id,
+        EventOrder.status == "PAID",
+        EventOrder.currency == selected_currency,
+    ]
+    if event_id is not None:
+        filters.append(EventOrder.event_id == event_id)
+
+    event_join = and_(
+        EventGallery.id == EventOrder.event_id,
+        EventGallery.workspace_id == EventOrder.workspace_id,
+    )
+
+    rows = db.execute(
+        select(
+            EventGallery.id,
+            EventGallery.title,
+            func.count(EventOrder.id),
+            func.coalesce(func.sum(EventOrder.item_count), 0),
+            func.coalesce(func.sum(EventOrder.photo_subtotal_cents), 0),
+            func.coalesce(func.sum(EventOrder.service_fee_cents), 0),
+            func.coalesce(func.sum(EventOrder.total_cents), 0),
+        )
+        .select_from(EventOrder)
+        .join(EventGallery, event_join)
+        .where(*filters)
+        .group_by(EventGallery.id, EventGallery.title)
+        .order_by(
+            func.sum(EventOrder.photo_subtotal_cents).desc(),
+            EventGallery.title,
+        )
+    ).all()
+
+    events = []
+
+    for (
+        event_uuid,
+        event_title,
+        count,
+        photos,
+        photo_cents,
+        fee_cents,
+        total_cents,
+    ) in rows:
+        paid_orders = int(count)
+        total = int(total_cents)
+
+        events.append(
+            {
+                "event_id": str(event_uuid),
+                "event_title": event_title,
+                "paid_orders": paid_orders,
+                "photos_sold": int(photos),
+                "photo_sales_cents": int(photo_cents),
+                "service_fees_cents": int(fee_cents),
+                "total_collected_cents": total,
+                "average_order_value_cents": round(total / paid_orders),
+            }
+        )
+
+    paid_orders = sum(event["paid_orders"] for event in events)
+    total_collected = sum(event["total_collected_cents"] for event in events)
+
+    return {
+        "currency": selected_currency,
+        "summary": {
+            "paid_orders": paid_orders,
+            "photos_sold": sum(event["photos_sold"] for event in events),
+            "photo_sales_cents": sum(
+                event["photo_sales_cents"] for event in events
+            ),
+            "service_fees_cents": sum(
+                event["service_fees_cents"] for event in events
+            ),
+            "total_collected_cents": total_collected,
+            "average_order_value_cents": (
+                round(total_collected / paid_orders) if paid_orders else 0
+            ),
+        },
+        "events": events,
+    }
+
+
 @router.get("/{order_number}")
 def get_event_order_detail(
     order_number: str,
@@ -177,7 +281,10 @@ def get_event_order_detail(
             EventOrderItem.workspace_id == workspace.id,
             EventOrderItem.event_id == order.event_id,
         )
-        .order_by(EventOrderItem.created_at.asc(), EventOrderItem.id.asc())
+        .order_by(
+            EventOrderItem.created_at.asc(),
+            EventOrderItem.id.asc(),
+        )
     ).all()
 
     photos = []

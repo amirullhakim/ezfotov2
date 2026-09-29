@@ -112,7 +112,9 @@ const navigation: NavigationItem[] = [
   {
     label: "Analytics",
     icon: BarChart3,
-    implemented: false,
+    href: "/dashboard/analytics",
+    serviceCode: "EVENT_SALES",
+    implemented: true,
   },
 ]
 
@@ -545,6 +547,13 @@ export default function WorkspaceDashboard({
                     className="rounded-xl border border-[#D4E2E5] bg-white px-4 py-2.5 text-sm font-semibold text-[#45666F]"
                   >
                     Orders
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/dashboard/analytics")}
+                    className="rounded-xl border border-[#D4E2E5] bg-white px-4 py-2.5 text-sm font-semibold text-[#45666F]"
+                  >
+                    Analytics
                   </button>
                 </div>
               )}
