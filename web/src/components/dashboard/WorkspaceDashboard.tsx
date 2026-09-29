@@ -93,13 +93,16 @@ const navigation: NavigationItem[] = [
   {
     label: "Event Sales",
     icon: Camera,
+    href: "/dashboard/events",
     serviceCode: "EVENT_SALES",
-    implemented: false,
+    implemented: true,
   },
   {
     label: "Orders",
     icon: ShoppingBag,
-    implemented: false,
+    href: "/dashboard/orders",
+    serviceCode: "EVENT_SALES",
+    implemented: true,
   },
   {
     label: "Customers",
@@ -298,6 +301,18 @@ export default function WorkspaceDashboard({
     ) {
       router.push(
         "/dashboard/galleries"
+      )
+
+      return
+    }
+
+
+    if (
+      service.code ===
+      "EVENT_SALES"
+    ) {
+      router.push(
+        "/dashboard/events"
       )
     }
   }
@@ -515,6 +530,25 @@ export default function WorkspaceDashboard({
 
               </div>
 
+              {isServiceActive("EVENT_SALES") && (
+                <div className="flex flex-wrap gap-3 lg:hidden">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/dashboard/events")}
+                    className="rounded-xl bg-[#073B4C] px-4 py-2.5 text-sm font-semibold text-white"
+                  >
+                    Event Sales
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/dashboard/orders")}
+                    className="rounded-xl border border-[#D4E2E5] bg-white px-4 py-2.5 text-sm font-semibold text-[#45666F]"
+                  >
+                    Orders
+                  </button>
+                </div>
+              )}
+
             </div>
 
 
@@ -595,7 +629,9 @@ export default function WorkspaceDashboard({
                           service.code ===
                             "WEBSITE" ||
                           service.code ===
-                            "CLIENT_GALLERY"
+                            "CLIENT_GALLERY" ||
+                          service.code ===
+                            "EVENT_SALES"
                         )
 
 
