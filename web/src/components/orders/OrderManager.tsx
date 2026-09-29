@@ -14,7 +14,6 @@ import { useEffect, useState } from "react"
 
 import { apiFetch } from "@/lib/api"
 
-
 type Order = {
   order_number: string
   customer_name: string
@@ -54,7 +53,6 @@ const filters = [
 
 function money(cents: number, currency: string) {
   if (currency === "MYR") return `RM${(cents / 100).toFixed(2)}`
-
   return new Intl.NumberFormat("en", {
     style: "currency",
     currency,
@@ -104,11 +102,7 @@ export default function OrderManager() {
   const [errorMessage, setErrorMessage] = useState("")
 
   useEffect(() => {
-    const timer = window.setTimeout(
-      () => setDebouncedSearch(search.trim()),
-      350
-    )
-
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 350)
     return () => window.clearTimeout(timer)
   }, [search])
 
@@ -137,9 +131,7 @@ export default function OrderManager() {
         if (active) {
           setResult(null)
           setErrorMessage(
-            error instanceof Error
-              ? error.message
-              : "Unable to load orders."
+            error instanceof Error ? error.message : "Unable to load orders."
           )
         }
       } finally {
@@ -301,9 +293,14 @@ export default function OrderManager() {
                       className="hover:bg-[#FBFDFD]"
                     >
                       <td className="whitespace-nowrap px-4 py-4 align-top">
-                        <p className="font-mono font-semibold text-[#244B55]">
+                        <Link
+                          href={`/dashboard/orders/${encodeURIComponent(
+                            order.order_number
+                          )}`}
+                          className="font-mono font-semibold text-[#0D7E8C] hover:underline"
+                        >
                           {order.order_number}
-                        </p>
+                        </Link>
                         <p className="mt-1 text-[#82969D]">
                           {dateTime(order.created_at)}
                         </p>
@@ -320,7 +317,9 @@ export default function OrderManager() {
 
                       <td className="px-4 py-4 align-top">
                         <Link
-                          href={`/dashboard/events/${encodeURIComponent(order.event_id)}`}
+                          href={`/dashboard/events/${encodeURIComponent(
+                            order.event_id
+                          )}`}
                           className="font-semibold text-[#0D7E8C] hover:underline"
                         >
                           {order.event_title}

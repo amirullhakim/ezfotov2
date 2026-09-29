@@ -1,0 +1,18 @@
+import { redirect } from "next/navigation"
+
+import OrderDetail from "@/components/orders/OrderDetail"
+import { createClient } from "@/lib/supabase/server"
+
+
+export default async function OrderDetailPage() {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  return <OrderDetail />
+}
