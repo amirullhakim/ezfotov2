@@ -279,27 +279,25 @@ export default function PlatformAdminDashboard({
 
 
             <nav className="mt-3 space-y-1">
-
-              {navItems.map(
-                ({
-                  label,
-                  icon: Icon,
-                  active,
-                }) => (
-                  <button
-                    key={label}
-                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
-                      active
-                        ? "bg-[#EDF9FA] text-[#087F8C]"
-                        : "text-[#667A83] hover:bg-[#F6F9FA] hover:text-[#284650]"
-                    }`}
-                  >
-                    <Icon className="h-[18px] w-[18px]" />
-                    {label}
-                  </button>
-                )
-              )}
-
+              {navItems.map(({ label, icon: Icon, active }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    if (label === "Commerce") {
+                      router.push("/admin/finance")
+                    }
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                    active
+                      ? "bg-[#EDF9FA] text-[#087F8C]"
+                      : "text-[#667A83] hover:bg-[#F6F9FA] hover:text-[#284650]"
+                  }`}
+                >
+                  <Icon className="h-[18px] w-[18px]" />
+                  {label}
+                </button>
+              ))}
             </nav>
 
           </div>
