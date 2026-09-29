@@ -22,6 +22,7 @@ from app.models.event_face_embedding import EventFaceEmbedding
 
 from app.models.event_order import EventOrder
 from app.models.event_order_item import EventOrderItem
+from app.models.event_sales_payment_ledger import EventSalesPaymentLedger
 
 
 __all__ = [
@@ -48,4 +49,5 @@ __all__ = [
 
     "EventOrder",
     "EventOrderItem",
+    "EventSalesPaymentLedger",
 ]
