@@ -90,6 +90,16 @@ type WorkspaceResponse = {
 }
 
 
+type CommerceOverview = {
+  currency: string
+  paid_orders: number
+  photos_sold: number
+  photo_sales_cents: number
+  service_fees_cents: number
+  total_collected_cents: number
+}
+
+
 const navItems = [
   {
     label: "Overview",
@@ -468,31 +478,7 @@ export default function PlatformAdminDashboard({
 
               <div className="space-y-5">
 
-                <section className="ez-card p-6">
-
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#E8F8F9]">
-                    <CircleDollarSign className="h-5 w-5 text-[#0798A6]" />
-                  </div>
-
-                  <p className="mt-5 text-xs font-bold uppercase tracking-[0.14em] text-[#899A9F]">
-                    Commerce
-                  </p>
-
-                  <h3 className="mt-2 text-lg font-semibold text-[#183A44]">
-                    Sales & Revenue
-                  </h3>
-
-                  <p className="mt-3 text-sm leading-6 text-[#71858C]">
-                    Revenue analytics will become
-                    available when the EZFOTOO order
-                    and payment system is connected.
-                  </p>
-
-                  <span className="mt-5 inline-flex rounded-full bg-[#F1F4F5] px-3 py-1 text-xs font-semibold text-[#71858C]">
-                    Coming in Commerce Phase
-                  </span>
-
-                </section>
+                <PlatformCommerceCard />
 
 
                 <section className="rounded-[22px] bg-[#073B4C] p-6 text-white">
@@ -764,5 +750,148 @@ function StatusRow({
       </span>
 
     </div>
+  )
+}
+
+
+function PlatformCommerceCard() {
+  const [commerce, setCommerce] =
+    useState<CommerceOverview | null>(null)
+
+  const [loading, setLoading] =
+    useState(true)
+
+  const [errorMessage, setErrorMessage] =
+    useState("")
+
+
+  useEffect(() => {
+    let active = true
+
+    async function loadCommerce() {
+      try {
+        const result =
+          await apiFetch<CommerceOverview>(
+            "/api/admin/commerce/overview"
+          )
+
+        if (active) {
+          setCommerce(result)
+        }
+
+      } catch (error) {
+        if (active) {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Unable to load commerce figures."
+          )
+        }
+
+      } finally {
+        if (active) {
+          setLoading(false)
+        }
+      }
+    }
+
+    void loadCommerce()
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+
+  function money(cents: number) {
+    return `RM${(cents / 100).toFixed(2)}`
+  }
+
+
+  return (
+    <section className="ez-card p-6">
+
+      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#E8F8F9]">
+        <CircleDollarSign className="h-5 w-5 text-[#0798A6]" />
+      </div>
+
+      <p className="mt-5 text-xs font-bold uppercase tracking-[0.14em] text-[#899A9F]">
+        Commerce
+      </p>
+
+      <h3 className="mt-2 text-lg font-semibold text-[#183A44]">
+        Event Sales
+      </h3>
+
+      <p className="mt-2 text-xs leading-5 text-[#71858C]">
+        Paid orders across all workspaces · MYR
+      </p>
+
+
+      {loading ? (
+        <div className="mt-5 flex items-center gap-2 text-sm text-[#71858C]">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading sales...
+        </div>
+      ) : errorMessage ? (
+        <p role="alert" className="mt-5 text-sm text-[#A44D57]">
+          {errorMessage}
+        </p>
+      ) : commerce ? (
+        <div className="mt-5 space-y-3 border-t border-[#E8EEF0] pt-5 text-sm">
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[#71858C]">
+              Paid orders
+            </span>
+            <span className="font-semibold text-[#183A44]">
+              {commerce.paid_orders}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[#71858C]">
+              Photos sold
+            </span>
+            <span className="font-semibold text-[#183A44]">
+              {commerce.photos_sold}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[#71858C]">
+              Photo sales
+            </span>
+            <span className="font-semibold text-[#183A44]">
+              {money(commerce.photo_sales_cents)}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[#71858C]">
+              Service fees collected
+            </span>
+            <span className="font-semibold text-[#183A44]">
+              {money(commerce.service_fees_cents)}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 border-t border-[#E8EEF0] pt-3">
+            <span className="font-semibold text-[#183A44]">
+              Total collected
+            </span>
+            <span className="font-semibold text-[#183A44]">
+              {money(commerce.total_collected_cents)}
+            </span>
+          </div>
+
+        </div>
+      ) : null}
+
+      <p className="mt-5 text-xs leading-5 text-[#899A9F]">
+        Sales figures before payment processing costs and payouts.
+      </p>
+
+    </section>
   )
 }

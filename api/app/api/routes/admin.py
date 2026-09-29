@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from app.core.auth import require_platform_admin
 from app.db.session import get_db
 from app.models import (
     Domain,
+    EventOrder,
     Profile,
     Service,
     Workspace,
@@ -78,6 +79,42 @@ def get_admin_overview(
     }
 
 
+@router.get("/commerce/overview")
+def get_admin_commerce_overview(
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+
+    (
+        paid_orders,
+        photos_sold,
+        photo_sales_cents,
+        service_fees_cents,
+        total_collected_cents,
+    ) = db.execute(
+        select(
+            func.count(EventOrder.id),
+            func.coalesce(func.sum(EventOrder.item_count), 0),
+            func.coalesce(func.sum(EventOrder.photo_subtotal_cents), 0),
+            func.coalesce(func.sum(EventOrder.service_fee_cents), 0),
+            func.coalesce(func.sum(EventOrder.total_cents), 0),
+        ).where(
+            EventOrder.status == "PAID",
+            EventOrder.currency == "MYR",
+        )
+    ).one()
+
+    return {
+        "currency": "MYR",
+        "paid_orders": int(paid_orders),
+        "photos_sold": int(photos_sold),
+        "photo_sales_cents": int(photo_sales_cents),
+        "service_fees_cents": int(service_fees_cents),
+        "total_collected_cents": int(total_collected_cents),
+    }
+
+
 @router.get("/workspaces")
 def get_admin_workspaces(
     db: Session = Depends(get_db),
@@ -91,7 +128,6 @@ def get_admin_workspaces(
     result = []
 
     for workspace in workspaces:
-
         owner_row = db.execute(
             select(
                 Profile.full_name,
@@ -193,7 +229,6 @@ def update_workspace_service(
         parsed_workspace_id = uuid.UUID(
             workspace_id
         )
-
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -225,10 +260,8 @@ def update_workspace_service(
 
     workspace_service = db.scalar(
         select(WorkspaceService).where(
-            WorkspaceService.workspace_id
-            == workspace.id,
-            WorkspaceService.service_id
-            == service.id,
+            WorkspaceService.workspace_id == workspace.id,
+            WorkspaceService.service_id == service.id,
         )
     )
 
@@ -255,8 +288,6 @@ def update_workspace_service(
             "code": service.code,
             "name": service.name,
             "status": workspace_service.status,
-            "activated_at": (
-                workspace_service.activated_at
-            ),
+            "activated_at": workspace_service.activated_at,
         },
     }

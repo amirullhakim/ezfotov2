@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from app.schemas.onboarding import (
     CompleteOnboardingRequest,
     CompleteOnboardingResponse,
     SlugAvailabilityResponse,
+    normalize_workspace_slug,
 )
 from app.services.vercel_domains import (
     VercelDomainProvisionError,
@@ -50,27 +51,56 @@ def utc_now() -> datetime:
 )
 def check_slug_availability(
     slug: str,
-    current_user: dict = Depends(
-        get_current_user
-    ),
+    response: Response,
     db: Session = Depends(get_db),
 ):
-    normalized_slug = (
-        slug.strip().lower()
-    )
+    response.headers["Cache-Control"] = "no-store"
+
+    normalized_slug = slug.strip().lower()
+
+    root_domain = (
+        settings.vercel_root_domain
+        or "ezfotoo.com"
+    ).strip().lower()
+
+    hostname = f"{normalized_slug}.{root_domain}"
+
+    try:
+        normalized_slug = normalize_workspace_slug(slug)
+    except ValueError as exc:
+        return {
+            "slug": normalized_slug,
+            "hostname": hostname,
+            "available": False,
+            "reason": str(exc),
+        }
 
     existing_workspace = db.scalar(
-        select(Workspace).where(
-            Workspace.slug
-            == normalized_slug
+        select(Workspace.id).where(
+            Workspace.slug == normalized_slug
         )
+    )
+
+    existing_domain = db.scalar(
+        select(Domain.id).where(
+            Domain.hostname == hostname
+        )
+    )
+
+    available = (
+        existing_workspace is None
+        and existing_domain is None
     )
 
     return {
         "slug": normalized_slug,
-        "available":
-            existing_workspace
-            is None,
+        "hostname": hostname,
+        "available": available,
+        "reason": (
+            None
+            if available
+            else "This workspace address is already taken."
+        ),
     }
 
 

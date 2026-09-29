@@ -11,7 +11,19 @@ import {
 import { useRouter } from "next/navigation"
 
 import { AuthShell } from "@/components/AuthShell"
+import { apiFetch } from "@/lib/api"
 import { createClient } from "@/lib/supabase/client"
+
+
+type AccountResponse = {
+  id: string
+  email: string | null
+  is_platform_admin: boolean
+}
+
+type WorkspaceResponse = {
+  onboarded: boolean
+}
 
 
 export default function LoginPage() {
@@ -32,23 +44,53 @@ export default function LoginPage() {
   ) {
     event.preventDefault()
 
+    if (loading) return
+
     setError("")
     setLoading(true)
 
-    const { error } =
-      await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      })
+    try {
+      const { error: signInError } =
+        await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        })
 
-    if (error) {
-      setError(error.message)
+      if (signInError) {
+        setError(signInError.message)
+        setLoading(false)
+        return
+      }
+
+      const account = await apiFetch<AccountResponse>(
+        "/api/auth/me"
+      )
+
+      if (account.is_platform_admin) {
+        router.replace("/admin")
+        router.refresh()
+        return
+      }
+
+      const workspace = await apiFetch<WorkspaceResponse>(
+        "/api/workspaces/me"
+      )
+
+      router.replace(
+        workspace.onboarded
+          ? "/dashboard"
+          : "/onboarding"
+      )
+      router.refresh()
+
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Unable to open your account. Please try again."
+      )
       setLoading(false)
-      return
     }
-
-    router.push("/onboarding")
-    router.refresh()
   }
 
 
@@ -73,23 +115,31 @@ export default function LoginPage() {
         className="mt-9 space-y-5"
       >
         {error && (
-          <div className="rounded-2xl border border-[#F0CDD1] bg-[#FFF7F8] px-4 py-3 text-sm text-[#A6424E]">
+          <div
+            role="alert"
+            className="rounded-2xl border border-[#F0CDD1] bg-[#FFF7F8] px-4 py-3 text-sm text-[#A6424E]"
+          >
             {error}
           </div>
         )}
 
         <div>
-          <label className="mb-2 block text-sm font-semibold text-[#314C56]">
+          <label
+            htmlFor="login-email"
+            className="mb-2 block text-sm font-semibold text-[#314C56]"
+          >
             Email address
           </label>
 
           <input
+            id="login-email"
             type="email"
             value={email}
             onChange={(event) =>
               setEmail(event.target.value)
             }
             required
+            disabled={loading}
             autoComplete="email"
             placeholder="you@example.com"
             className="h-12 w-full rounded-xl border border-[#DCE7EA] bg-white px-4 text-[15px] text-[#183640] outline-none transition placeholder:text-[#A8B5BA] focus:border-[#33C7D3] focus:ring-4 focus:ring-[#1CC9D8]/10"
@@ -98,7 +148,10 @@ export default function LoginPage() {
 
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <label className="text-sm font-semibold text-[#314C56]">
+            <label
+              htmlFor="login-password"
+              className="text-sm font-semibold text-[#314C56]"
+            >
               Password
             </label>
 
@@ -112,18 +165,26 @@ export default function LoginPage() {
 
           <div className="relative">
             <input
+              id="login-password"
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(event) =>
                 setPassword(event.target.value)
               }
               required
+              disabled={loading}
               autoComplete="current-password"
               className="h-12 w-full rounded-xl border border-[#DCE7EA] bg-white px-4 pr-12 text-[15px] text-[#183640] outline-none transition focus:border-[#33C7D3] focus:ring-4 focus:ring-[#1CC9D8]/10"
             />
 
             <button
               type="button"
+              aria-label={
+                showPassword
+                  ? "Hide password"
+                  : "Show password"
+              }
+              aria-pressed={showPassword}
               onClick={() =>
                 setShowPassword((value) => !value)
               }
@@ -139,6 +200,7 @@ export default function LoginPage() {
         </div>
 
         <button
+          type="submit"
           disabled={loading}
           className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] font-semibold text-white shadow-[0_12px_24px_rgba(7,59,76,0.14)] transition hover:bg-[#0B5363] disabled:opacity-60"
         >

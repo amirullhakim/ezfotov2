@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation"
 
-import { createClient } from "@/lib/supabase/server"
+import PlatformAdminAccess from "@/components/dashboard/PlatformAdminAccess"
 import WorkspaceDashboard from "@/components/dashboard/WorkspaceDashboard"
+import { createClient } from "@/lib/supabase/server"
 
 
 export default async function DashboardPage() {
@@ -16,8 +17,12 @@ export default async function DashboardPage() {
   }
 
   return (
-    <WorkspaceDashboard
-      email={user.email ?? ""}
-    />
+    <>
+      <PlatformAdminAccess />
+
+      <WorkspaceDashboard
+        email={user.email ?? ""}
+      />
+    </>
   )
 }
