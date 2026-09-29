@@ -3,6 +3,7 @@
 import {
   BarChart3,
   Camera,
+  CircleDollarSign,
   ChevronRight,
   Globe2,
   Images,
@@ -101,6 +102,13 @@ const navigation: NavigationItem[] = [
     label: "Orders",
     icon: ShoppingBag,
     href: "/dashboard/orders",
+    serviceCode: "EVENT_SALES",
+    implemented: true,
+  },
+  {
+    label: "Finance",
+    icon: CircleDollarSign,
+    href: "/dashboard/finance",
     serviceCode: "EVENT_SALES",
     implemented: true,
   },
@@ -213,11 +221,8 @@ export default function WorkspaceDashboard({
       <div className="flex min-h-screen items-center justify-center bg-[#F7FAFB]">
 
         <div className="flex items-center gap-3 text-sm font-semibold text-[#58717A]">
-
           <Loader2 className="h-5 w-5 animate-spin text-[#0BA5B4]" />
-
           Loading your workspace...
-
         </div>
 
       </div>
@@ -445,7 +450,6 @@ export default function WorkspaceDashboard({
 
               Settings
 
-
               <span className="ml-auto rounded-full bg-[#F2F5F6] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-[#91A1A6]">
                 Soon
               </span>
@@ -547,6 +551,13 @@ export default function WorkspaceDashboard({
                     className="rounded-xl border border-[#D4E2E5] bg-white px-4 py-2.5 text-sm font-semibold text-[#45666F]"
                   >
                     Orders
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/dashboard/finance")}
+                    className="rounded-xl border border-[#D4E2E5] bg-white px-4 py-2.5 text-sm font-semibold text-[#45666F]"
+                  >
+                    Finance
                   </button>
                   <button
                     type="button"
