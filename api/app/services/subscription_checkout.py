@@ -54,7 +54,19 @@ def integer(value: object) -> int | None:
         return None
 
 
+def require_subscription_payment_mode() -> None:
+    if (settings.app_environment or "").strip().lower() == "production":
+        if (settings.chip_mode or "").strip().lower() != "live":
+            raise HTTPException(503, "Live subscription payments are not configured. Contact support.")
+
+
 def validate_purchase(order: SubscriptionBillingOrder, purchase: dict) -> str:
+    require_subscription_payment_mode()
+    if (settings.app_environment or "").strip().lower() == "production":
+        # The key determines the actual provider mode. Never trust CHIP_MODE alone.
+        # Missing or non-boolean mode data also fails closed.
+        if purchase.get("is_test") is not False:
+            raise HTTPException(409, "This purchase is not a verified live payment. Subscription activation blocked.")
     purchase_id = str(purchase.get("id") or "").strip()
     try:
         uuid.UUID(purchase_id)
@@ -297,6 +309,7 @@ def start_checkout(
     db: Session, *, workspace_id: uuid.UUID, profile_id: uuid.UUID,
     email: str, plan_code: str, idempotency_key: uuid.UUID,
 ) -> dict:
+    require_subscription_payment_mode()
     workspace = lock_workspace(db, workspace_id)
     membership = db.scalar(select(WorkspaceMember).where(
         WorkspaceMember.workspace_id == workspace_id,

@@ -13,7 +13,7 @@ import {
   Package,
   Settings,
   ShoppingBag,
-  Users,
+  CreditCard,
 } from "lucide-react"
 
 import {
@@ -26,6 +26,8 @@ import {
   useMemo,
   useState,
 } from "react"
+
+import WorkspacePlanSummary from "@/components/billing/WorkspacePlanSummary"
 
 import { EzfotooBrand } from "@/components/brand/EzfotooBrand"
 import { apiFetch } from "@/lib/api"
@@ -113,9 +115,10 @@ const navigation: NavigationItem[] = [
     implemented: true,
   },
   {
-    label: "Customers",
-    icon: Users,
-    implemented: false,
+    label: "Billing",
+    icon: CreditCard,
+    href: "/dashboard/billing",
+    implemented: true,
   },
   {
     label: "Analytics",
@@ -252,6 +255,21 @@ export default function WorkspaceDashboard({
   }
 
 
+  function canOpenService(serviceCode?: string) {
+    if (serviceCode === "WEBSITE") {
+      const website = workspace.services.find(
+        (service) => service.code === "WEBSITE"
+      )
+
+      return workspace.status === "ACTIVE" &&
+        website?.status !== "SUSPENDED" &&
+        website?.status !== "DISABLED"
+    }
+
+    return isServiceActive(serviceCode)
+  }
+
+
   function handleNavigation(
     item: NavigationItem
   ) {
@@ -265,7 +283,7 @@ export default function WorkspaceDashboard({
 
     if (
       item.serviceCode &&
-      !isServiceActive(
+      !canOpenService(
         item.serviceCode
       )
     ) {
@@ -282,10 +300,7 @@ export default function WorkspaceDashboard({
   function handleServiceClick(
     service: Service
   ) {
-    if (
-      service.status !==
-      "ACTIVE"
-    ) {
+    if (!canOpenService(service.code)) {
       return
     }
 
@@ -363,7 +378,7 @@ export default function WorkspaceDashboard({
 
                   const available =
                     item.implemented &&
-                    serviceActive &&
+                    canOpenService(item.serviceCode) &&
                     Boolean(
                       item.href
                     )
@@ -442,17 +457,13 @@ export default function WorkspaceDashboard({
 
             <button
               type="button"
-              disabled
-              className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#A8B5B9]"
+              onClick={() => router.push("/dashboard/settings")}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#667A83] transition hover:bg-[#F6F9FA] hover:text-[#284650]"
             >
 
               <Settings className="h-[18px] w-[18px]" />
 
               Settings
-
-              <span className="ml-auto rounded-full bg-[#F2F5F6] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-[#91A1A6]">
-                Soon
-              </span>
 
             </button>
 
@@ -536,6 +547,11 @@ export default function WorkspaceDashboard({
 
               </div>
 
+              <div className="flex flex-wrap gap-3 lg:hidden">
+                <button type="button" onClick={() => router.push("/dashboard/billing")} className="rounded-xl border border-[#D4E2E5] bg-white px-4 py-2.5 text-sm font-semibold text-[#45666F]">Billing</button>
+                <button type="button" onClick={() => router.push("/dashboard/settings")} className="rounded-xl border border-[#D4E2E5] bg-white px-4 py-2.5 text-sm font-semibold text-[#45666F]">Settings</button>
+              </div>
+
               {isServiceActive("EVENT_SALES") && (
                 <div className="flex flex-wrap gap-3 lg:hidden">
                   <button
@@ -612,6 +628,8 @@ export default function WorkspaceDashboard({
             </div>
 
 
+            <div className="mt-8"><WorkspacePlanSummary /></div>
+
             <div className="mt-8 grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
 
               {/* SERVICES */}
@@ -643,8 +661,7 @@ export default function WorkspaceDashboard({
                   {workspace.services.map(
                     (service) => {
                       const clickable =
-                        service.status ===
-                          "ACTIVE" &&
+                        canOpenService(service.code) &&
                         (
                           service.code ===
                             "WEBSITE" ||

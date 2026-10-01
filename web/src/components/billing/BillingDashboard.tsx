@@ -10,6 +10,7 @@ import DashboardPage, {
   formatDashboardMoney,
 } from "@/components/dashboard/DashboardPage"
 import { apiFetch } from "@/lib/api"
+import SubscriptionPaymentHistory from "@/components/billing/SubscriptionPaymentHistory"
 
 type ServiceCode = "WEBSITE" | "CLIENT_GALLERY" | "EVENT_SALES"
 type Terms = {
@@ -501,7 +502,11 @@ export default function BillingDashboard() {
             {current?.current_period_end && (
               <p className="mt-4 text-sm text-[#607B84]">
                 Subscription period: {date(current.current_period_start)} – {date(current.current_period_end)}
-                {current.cancel_at_period_end && " · Cancels at the end of this period"}
+              </p>
+            )}
+            {current?.eligible && (
+              <p className="mt-2 text-sm text-[#607B84]">
+                Active until {date(current.current_period_end)}. Renew manually to continue.
               </p>
             )}
             {includedSources.length > 0 && (
@@ -578,6 +583,17 @@ export default function BillingDashboard() {
           )}
         </>
       ) : null}
+      {billing?.can_manage_billing && <SubscriptionPaymentHistory refreshKey={refreshKey} />}
+      {billing && (
+        <section className={`${dashboardCardClass} mt-8 p-6`}>
+          <h2 className="text-lg font-semibold text-[#173943]">Billing support</h2>
+          <p className="mt-2 text-sm leading-6 text-[#607B84]">
+            Questions about your plan or payment? Email our support team with your workspace name and order number.
+          </p>
+          <a href="mailto:ezfotoo@gmail.com?subject=EZFOTOO%20billing%20support"
+            className={`${dashboardButtonClass} mt-4`}>ezfotoo@gmail.com</a>
+        </section>
+      )}
     </DashboardPage>
   )
 }
