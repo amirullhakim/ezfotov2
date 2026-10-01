@@ -13,6 +13,7 @@ from app.models import (
 )
 from app.schemas.website import (
     PhotographyPackageCreate,
+    PhotographyPackageUpdate,
     PortfolioItemCreate,
     WebsiteSettingsUpdate,
 )
@@ -20,8 +21,14 @@ from app.services.media_assets import (
     delete_media_asset,
     get_workspace_media_asset,
 )
-from app.services.service_access import (
-    require_workspace_service,
+from app.services.website_access import (
+    require_website_draft_access,
+    require_website_publication,
+    website_settings_response,
+)
+from app.services.website_packages import (
+    can_manage_package_prices,
+    require_package_price_access,
 )
 from app.services.workspace_access import (
     get_user_workspace,
@@ -43,11 +50,7 @@ def get_website_workspace(
         db,
     )
 
-    require_workspace_service(
-        workspace.id,
-        "WEBSITE",
-        db,
-    )
+    require_website_draft_access(workspace, db)
 
     return workspace, membership
 
@@ -151,7 +154,7 @@ def get_website_settings(
         db.commit()
         db.refresh(settings)
 
-    return settings
+    return website_settings_response(settings, workspace, db)
 
 
 @router.put("/settings")
@@ -166,6 +169,9 @@ def update_website_settings(
         current_user,
         db,
     )
+
+    if payload.is_published:
+        require_website_publication(workspace, db)
 
     settings = db.scalar(
         select(WebsiteSettings).where(
@@ -277,7 +283,7 @@ def update_website_settings(
 
     db.refresh(settings)
 
-    return settings
+    return website_settings_response(settings, workspace, db)
 
 
 @router.get("/portfolio")
@@ -464,6 +470,7 @@ def get_packages(
 
     return {
         "packages": packages,
+        "can_manage_prices": can_manage_package_prices(workspace.id, db),
     }
 
 
@@ -483,6 +490,9 @@ def create_package(
         db,
     )
 
+    if payload.price_rm is not None or payload.price_label is not None:
+        require_package_price_access(workspace.id, db)
+
     package = PhotographyPackage(
         workspace_id=workspace.id,
         **payload.model_dump(),
@@ -492,6 +502,38 @@ def create_package(
     db.commit()
     db.refresh(package)
 
+    return package
+
+
+@router.patch("/packages/{package_id}")
+def update_package(
+    package_id: uuid.UUID,
+    payload: PhotographyPackageUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    workspace, _ = get_website_workspace(current_user, db)
+    package = db.scalar(select(PhotographyPackage).where(
+        PhotographyPackage.id == package_id,
+        PhotographyPackage.workspace_id == workspace.id,
+    ))
+    if package is None:
+        raise HTTPException(404, "Package not found.")
+
+    values = payload.model_dump(exclude_unset=True)
+    # Expired workspaces can still edit descriptions, hide packages or clear
+    # prices. Adding/changing a non-empty price requires Gallery access.
+    price_changed = any(
+        field in values and values[field] is not None
+        and values[field] != getattr(package, field)
+        for field in ("price_rm", "price_label")
+    )
+    if price_changed:
+        require_package_price_access(workspace.id, db)
+    for field, value in values.items():
+        setattr(package, field, value)
+    db.commit()
+    db.refresh(package)
     return package
 
 

@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
@@ -7,6 +8,8 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Numeric,
+    false,
     String,
     Text,
     UniqueConstraint,
@@ -22,6 +25,8 @@ class ClientGallery(TimestampMixin, Base):
     __tablename__ = "client_galleries"
 
     __table_args__ = (
+        CheckConstraint('price_rm IS NULL OR (price_rm >= 0 AND price_rm < 100000000)', name="ck_client_galleries_price_rm"),
+        CheckConstraint("NOT show_on_website OR privacy_mode IN ('PUBLIC', 'PASSWORD')", name="ck_client_galleries_website_privacy"),
         UniqueConstraint(
             "workspace_id",
             "slug",
@@ -68,6 +73,12 @@ class ClientGallery(TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
+    )
+
+    price_rm: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+
+    show_on_website: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False,
     )
 
     shoot_date: Mapped[date | None] = mapped_column(

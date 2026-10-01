@@ -23,6 +23,10 @@ from app.models.event_face_embedding import EventFaceEmbedding
 from app.models.event_order import EventOrder
 from app.models.event_order_item import EventOrderItem
 from app.models.event_sales_payment_ledger import EventSalesPaymentLedger
+from app.models.service_plan import ServicePlan
+from app.models.workspace_subscription import WorkspaceSubscription
+from app.models.subscription_billing_order import SubscriptionBillingOrder
+from app.models.photo_upload_reservation import PhotoUploadReservation
 
 
 __all__ = [
@@ -50,4 +54,8 @@ __all__ = [
     "EventOrder",
     "EventOrderItem",
     "EventSalesPaymentLedger",
+    "ServicePlan",
+    "WorkspaceSubscription",
+    "SubscriptionBillingOrder",
+    "PhotoUploadReservation",
 ]

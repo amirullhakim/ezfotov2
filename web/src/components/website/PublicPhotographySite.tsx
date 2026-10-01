@@ -7,6 +7,8 @@ import {
   Mail,
   MapPin,
   Phone,
+  MessageCircle,
+  LockKeyhole,
 } from "lucide-react"
 
 
@@ -66,8 +68,40 @@ type SiteData = {
 
   portfolio: PortfolioItem[]
   packages: PackageItem[]
+  galleries?: {
+    id: string
+    title: string
+    slug: string
+    description: string | null
+    shoot_date: string | null
+    privacy_mode: "PUBLIC" | "PASSWORD"
+    price_rm: string | null
+    cover_url: string | null
+  }[]
 }
 
+
+// WhatsApp needs international digits, without +, spaces or punctuation.
+export function whatsappNumber(value: string | null): string | null {
+  const input = value?.trim()
+  if (!input || !/^\+?[0-9][0-9()\s.-]*$/.test(input)) return null
+  let digits = input.replace(/[^0-9]/g, "")
+  if (digits.startsWith("00")) digits = digits.slice(2)
+  else if (digits.startsWith("0")) digits = `60${digits.slice(1)}`
+  return /^[1-9][0-9]{7,14}$/.test(digits) ? digits : null
+}
+
+function packagePrice(item: PackageItem): string {
+  if (item.price_label && /\bRM\s*\d/i.test(item.price_label)) return item.price_label
+  if (item.price_rm !== null) {
+    const amount = Number(item.price_rm)
+    if (Number.isFinite(amount)) {
+      const price = `RM ${amount.toLocaleString("en-MY", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+      return item.price_label ? `${price} ${item.price_label}` : price
+    }
+  }
+  return item.price_label || "Contact for pricing"
+}
 
 export default function PublicPhotographySite({
   site,
@@ -88,6 +122,18 @@ export default function PublicPhotographySite({
   const brandName =
     settings.display_name ||
     workspace.name
+
+
+  const galleries = site.galleries ?? []
+  const number = whatsappNumber(settings.contact_phone)
+  function enquiryLink(packageName?: string) {
+    if (!number) return null
+    const message = packageName
+      ? `Hi ${brandName}, I'm interested in your "${packageName}" package. Could you share availability and details?`
+      : `Hi ${brandName}, I'd like to enquire about your photography services.`
+    return `https://wa.me/${number}?text=${encodeURIComponent(message)}`
+  }
+  const whatsappLink = enquiryLink()
 
 
   function scrollTo(
@@ -164,6 +210,10 @@ export default function PublicPhotographySite({
               >
                 Packages
               </button>
+            )}
+
+            {galleries.length > 0 && (
+              <button type="button" onClick={() => scrollTo("galleries")} className="transition hover:text-[#18333C]">Galleries</button>
             )}
 
             <button
@@ -571,10 +621,7 @@ export default function PublicPhotographySite({
 
                   <p className="mt-7 text-2xl font-semibold">
 
-                    {packageItem.price_rm
-                      ? `RM ${packageItem.price_rm}`
-                      : packageItem.price_label ||
-                        "Contact for pricing"}
+                    {packagePrice(packageItem)}
 
                   </p>
 
@@ -593,6 +640,18 @@ export default function PublicPhotographySite({
                     </div>
                   )}
 
+                  {number ? (
+                    <a href={enquiryLink(packageItem.name)!} target="_blank" rel="noopener noreferrer"
+                      className={`mt-7 inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${index === 0 ? "bg-white text-[#18333C] hover:bg-white/90" : "bg-[#F0F6F6] text-[#18333C] hover:bg-[#E3EEEE]"}`}>
+                      <MessageCircle className="h-4 w-4" /> Enquire on WhatsApp
+                    </a>
+                  ) : (
+                    <button type="button" onClick={() => scrollTo("contact")}
+                      className="mt-7 inline-flex items-center gap-2 text-sm font-semibold underline underline-offset-4">
+                      Enquire about this package <ArrowRight className="h-4 w-4" />
+                    </button>
+                  )}
+
                 </article>
               )
             )}
@@ -602,6 +661,49 @@ export default function PublicPhotographySite({
         </section>
       )}
 
+
+      {galleries.length > 0 && (
+        <section id="galleries" className="mx-auto max-w-[1380px] px-6 py-24 lg:px-10 lg:py-32">
+          <p className="text-xs font-bold uppercase tracking-[0.2em]" style={{color: accent}}>Client galleries</p>
+          <h2 className="mt-4 text-[42px] font-semibold tracking-[-0.045em]" style={{color: primary}}>Explore our galleries.</h2>
+          <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {galleries.map(gallery => {
+              const href = `/site/${encodeURIComponent(workspace.slug)}/gallery/${encodeURIComponent(gallery.slug)}`
+              const enquiry = number ? `https://wa.me/${number}?text=${encodeURIComponent(`Hi ${brandName}, I'm interested in the full "${gallery.title}" gallery. Could you share the details?`)}` : null
+              return (
+                <article key={gallery.id} className="overflow-hidden rounded-[24px] border border-[#DFE7E9] bg-white">
+                  <a href={href} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset" aria-label={`View ${gallery.title}`}>
+                    {gallery.privacy_mode === "PUBLIC" && gallery.cover_url ? (
+                      <img src={gallery.cover_url} alt={gallery.title} loading="lazy" className="aspect-[4/3] w-full object-cover" />
+                    ) : (
+                      <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-[#F0F5F5] text-[#648088]">
+                        {gallery.privacy_mode === "PASSWORD" ? <LockKeyhole className="h-8 w-8" /> : <Camera className="h-8 w-8" />}
+                        <span className="text-xs font-semibold">{gallery.privacy_mode === "PASSWORD" ? "Password-protected gallery" : "Client gallery"}</span>
+                      </div>
+                    )}
+                  </a>
+                  <div className="p-6">
+                    <h3 className="text-xl font-semibold tracking-tight" style={{color: primary}}>{gallery.title}</h3>
+                    {gallery.description && <p className="mt-3 line-clamp-3 text-sm leading-6 text-[#6E838A]">{gallery.description}</p>}
+                    <p className="mt-5 text-lg font-semibold" style={{color: primary}}>
+                      {gallery.price_rm !== null ? `RM ${Number(gallery.price_rm).toLocaleString("en-MY", {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : "Enquire for pricing"}
+                    </p>
+                    {gallery.price_rm !== null && <p className="mt-1 text-xs text-[#84979D]">Full gallery</p>}
+                    <div className="mt-6 flex flex-wrap items-center gap-4">
+                      <a href={href} className="inline-flex items-center gap-2 text-sm font-semibold" style={{color: primary}}>View gallery <ArrowRight className="h-4 w-4" /></a>
+                      {enquiry ? (
+                        <a href={enquiry} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-full bg-[#F0F6F6] px-4 py-2 text-sm font-semibold text-[#18333C]"><MessageCircle className="h-4 w-4" />Enquire</a>
+                      ) : (
+                        <button type="button" onClick={() => scrollTo("contact")} className="text-sm font-semibold underline underline-offset-4">Enquire</button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       {/* CONTACT */}
       <section
@@ -637,6 +739,13 @@ export default function PublicPhotographySite({
 
 
             <div className="space-y-5">
+
+              {whatsappLink && (
+                <a href={whatsappLink} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-3 rounded-full bg-white px-6 py-3 text-sm font-semibold text-[#18333C] transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
+                  <MessageCircle className="h-5 w-5" /> Chat on WhatsApp
+                </a>
+              )}
 
               {settings.contact_email && (
                 <ContactRow

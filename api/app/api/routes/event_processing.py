@@ -27,8 +27,9 @@ from app.schemas.event_processing import (
     EventProcessingJobResponse,
 )
 
-from app.services.service_access import (
-    require_workspace_service,
+from app.services.subscription_access import (
+    require_paid_workspace_service,
+    require_workspace_service_management,
 )
 
 from app.services.workspace_access import (
@@ -50,6 +51,8 @@ router = APIRouter(
 def get_event_sales_workspace(
     current_user: dict,
     db: Session,
+    *,
+    require_paid: bool = False,
 ):
     workspace, membership = (
         get_user_workspace(
@@ -58,11 +61,10 @@ def get_event_sales_workspace(
         )
     )
 
-    require_workspace_service(
-        workspace.id,
-        "EVENT_SALES",
-        db,
-    )
+    if require_paid:
+        require_paid_workspace_service(workspace.id, "EVENT_SALES", db)
+    else:
+        require_workspace_service_management(workspace.id, "EVENT_SALES", db)
 
     return workspace, membership
 
@@ -487,6 +489,7 @@ def start_processing(
         get_event_sales_workspace(
             current_user,
             db,
+            require_paid=True,
         )
     )
 

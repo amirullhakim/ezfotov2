@@ -3,19 +3,25 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from datetime import datetime, timezone
+
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
     EventGallery,
     EventPhoto,
+    Workspace,
 )
+
+
+from app.services.subscription_access import require_paid_workspace_service
 
 
 MAX_CART_PHOTOS = 100
 
-# MVP service fee charged once per order.
-# We will move this into the future pricing-plan system later.
+# Legacy import compatibility. New quotes use the purchased plan fee.
 EVENT_SALES_SERVICE_FEE_CENTS = 200
 
 
@@ -42,6 +48,56 @@ class EventSalesQuote:
 
     bundled_photo_count: int
     remainder_photo_count: int
+
+    pricing_subscription_id: uuid.UUID
+    pricing_plan_code: str
+    pricing_plan_name: str
+    commission_bps: int
+    commission_cents: int
+    photographer_share_cents: int
+    platform_share_cents: int
+
+
+def calculate_event_commission(photo_subtotal_cents: int, commission_bps: int, service_fee_cents: int) -> dict[str, int]:
+    """Round positive commission to the nearest sen, half up, using integers.
+
+    Commission is charged on photo sales after discounts. The service fee is
+    added to the platform's gross share; provider fees are not deducted here.
+    """
+    if any(type(value) is not int or value < 0 for value in (photo_subtotal_cents, commission_bps, service_fee_cents)):
+        raise ValueError("Invalid commission pricing values.")
+    if commission_bps > 10000:
+        raise ValueError("Commission cannot exceed 100%.")
+    commission = (photo_subtotal_cents * commission_bps + 5000) // 10000
+    return {
+        "commission_cents": commission,
+        "photographer_share_cents": photo_subtotal_cents - commission,
+        "platform_share_cents": commission + service_fee_cents,
+    }
+
+
+def _get_event_sales_subscription(db: Session, event: EventGallery, *, lock_subscription: bool):
+    if lock_subscription:
+        # Subscription activation and event management use the same parent
+        # lock. Keep it through the order insert/commit to save consistent terms.
+        workspace = db.scalar(select(Workspace).where(
+            Workspace.id == event.workspace_id,
+        ).with_for_update().execution_options(populate_existing=True))
+        if workspace is None or workspace.status != "ACTIVE":
+            raise HTTPException(409, "Photo purchases are currently unavailable for this event.")
+        db.expire_all()
+    try:
+        subscription = require_paid_workspace_service(event.workspace_id, "EVENT_SALES", db)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            raise HTTPException(409, "Photo purchases are currently unavailable for this event.") from exc
+        raise
+    now = datetime.now(timezone.utc)
+    if event.status != "LIVE" or (event.sales_end_at is not None and event.sales_end_at <= now):
+        raise HTTPException(409, "Sales are currently closed for this event.")
+    if event.currency != subscription.currency:
+        raise HTTPException(409, "Photo purchases are currently unavailable for this event currency.")
+    return subscription
 
 
 def public_photo_conditions(
@@ -79,6 +135,7 @@ def calculate_event_sales_quote(
     db: Session,
     event: EventGallery,
     photo_ids: list[uuid.UUID],
+    lock_subscription: bool = False,
 ) -> EventSalesQuote:
     # --------------------------------------------------
     # DEDUPLICATE WHILE PRESERVING ORDER
@@ -121,6 +178,8 @@ def calculate_event_sales_quote(
             "can be purchased in one order."
         )
 
+
+    subscription = _get_event_sales_subscription(db, event, lock_subscription=lock_subscription)
 
     # --------------------------------------------------
     # VALIDATE PHOTOS
@@ -304,8 +363,9 @@ def calculate_event_sales_quote(
     # pricing has been applied to the photo subtotal.
     #
 
-    service_fee_cents = (
-        EVENT_SALES_SERVICE_FEE_CENTS
+    service_fee_cents = subscription.customer_service_fee_cents
+    commission = calculate_event_commission(
+        photo_subtotal_cents, subscription.commission_bps, service_fee_cents,
     )
 
 
@@ -316,6 +376,11 @@ def calculate_event_sales_quote(
 
 
     return EventSalesQuote(
+        pricing_subscription_id=subscription.id,
+        pricing_plan_code=subscription.plan_code_snapshot,
+        pricing_plan_name=subscription.plan_name_snapshot,
+        commission_bps=subscription.commission_bps,
+        **commission,
         photos=
             selected_photos,
 

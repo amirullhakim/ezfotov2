@@ -136,6 +136,10 @@ def quote_public_event_cart(
         ],
 
         "pricing": {
+            "photo_subtotal_cents": quote.photo_subtotal_cents,
+            "photo_subtotal_rm": cents_to_rm(quote.photo_subtotal_cents),
+            "service_fee_cents": quote.service_fee_cents,
+            "service_fee_rm": cents_to_rm(quote.service_fee_cents),
             "unit_price_cents":
                 quote.unit_price_cents,
 

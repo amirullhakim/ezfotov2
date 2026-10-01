@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  ArrowLeft,
   CheckCircle2,
   Eye,
   Globe2,
@@ -14,7 +13,6 @@ import {
   Sparkles,
 } from "lucide-react"
 
-import { useRouter } from "next/navigation"
 
 import {
   FormEvent,
@@ -35,6 +33,8 @@ import PortfolioManager, {
 import WebsitePreview, {
   PreviewSettings,
 } from "@/components/website/WebsitePreview"
+
+import { DashboardHeader, dashboardPrimaryButtonClass, dashboardButtonClass } from "@/components/dashboard/DashboardPage"
 
 import { apiFetch } from "@/lib/api"
 
@@ -62,6 +62,8 @@ type WebsiteSettingsResponse =
       | null
 
     is_published: boolean
+    can_publish: boolean
+    publication_expires_at: string | null
 
     template_key: string
   }
@@ -124,6 +126,8 @@ const emptySettings: WebsiteSettingsResponse = {
   template_key: "SIGNATURE",
 
   is_published: false,
+  can_publish: false,
+  publication_expires_at: null,
 }
 
 
@@ -220,7 +224,6 @@ function normalizeSettings(
 
 
 export default function WebsiteStudio() {
-  const router = useRouter()
 
   const [
     activeTab,
@@ -499,6 +502,11 @@ export default function WebsiteStudio() {
 
 
   async function togglePublished() {
+    if (!settings.can_publish) {
+      window.location.assign("/dashboard/billing")
+      return
+    }
+
     const nextPublished =
       !settings.is_published
 
@@ -583,51 +591,15 @@ export default function WebsiteStudio() {
 
 
   return (
-    <main className="min-h-screen bg-[#F4F8F9]">
+    <main className="min-h-screen bg-[#F5F8F9]">
 
-      <header className="sticky top-0 z-30 border-b border-[#DFE8EA] bg-white/95 backdrop-blur">
-
-        <div className="flex min-h-[76px] items-center justify-between gap-5 px-5 lg:px-8">
-
-          <div className="flex items-center gap-4">
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push(
-                  "/dashboard"
-                )
-              }
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#E1EAEC] bg-white text-[#58717A] transition hover:bg-[#F4F8F9]"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </button>
-
-
-            <div>
-
-              <div className="flex items-center gap-2">
-
-                <Globe2 className="h-4 w-4 text-[#0A99A7]" />
-
-                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#0A8D99]">
-                  Photographer Website
-                </p>
-
-              </div>
-
-
-              <h1 className="mt-1 text-lg font-semibold tracking-[-0.025em] text-[#183A44]">
-                Website Studio
-              </h1>
-
-            </div>
-
-          </div>
-
-
-          <div className="flex items-center gap-2 lg:gap-3">
-
+      <DashboardHeader
+        title="Website Studio"
+        section="Photographer Website"
+        icon={<Globe2 className="h-4 w-4" />}
+        titleAsHeading
+        actions={
+          <>
             {status && (
               <div className="mr-2 hidden items-center gap-2 text-xs font-semibold text-[#658087] xl:flex">
 
@@ -647,7 +619,7 @@ export default function WebsiteStudio() {
               disabled={
                 !settings.is_published
               }
-              className="hidden h-10 items-center gap-2 rounded-xl border border-[#DCE7E9] bg-white px-4 text-sm font-semibold text-[#36545D] transition hover:bg-[#F7FAFB] disabled:cursor-not-allowed disabled:opacity-45 sm:flex"
+              className={`${dashboardButtonClass} hidden sm:inline-flex`}
             >
 
               <Eye className="h-4 w-4" />
@@ -663,7 +635,8 @@ export default function WebsiteStudio() {
                 saveSettings()
               }
               disabled={saving}
-              className="flex h-10 items-center gap-2 rounded-xl border border-[#DCE7E9] bg-white px-4 text-sm font-semibold text-[#36545D] transition hover:bg-[#F7FAFB] disabled:opacity-60"
+              aria-label="Save website"
+              className={dashboardButtonClass}
             >
 
               {saving ? (
@@ -685,24 +658,20 @@ export default function WebsiteStudio() {
                 togglePublished
               }
               disabled={saving}
-              className={`flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-semibold transition ${
-                settings.is_published
-                  ? "bg-[#E3F5EF] text-[#187D62]"
-                  : "bg-[#073B4C] text-white hover:bg-[#0B5363]"
-              }`}
+              className={settings.is_published
+                ? "inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#E3F5EF] px-4 text-sm font-semibold text-[#187D62] transition hover:bg-[#D5EEE4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#47C6CE] disabled:opacity-50"
+                : dashboardPrimaryButtonClass
+              }
             >
 
-              {settings.is_published
-                ? "Published"
-                : "Publish"}
+              {!settings.can_publish
+                ? "Choose plan"
+                : settings.is_published ? "Published" : "Publish"}
 
             </button>
-
-          </div>
-
-        </div>
-
-
+          </>
+        }
+      >
         <div className="border-t border-[#EEF2F3] px-5 lg:px-8">
 
           <div className="flex min-h-[58px] items-center gap-2 overflow-x-auto">
@@ -762,15 +731,20 @@ export default function WebsiteStudio() {
           </div>
 
         </div>
+      </DashboardHeader>
 
-      </header>
 
-
-      <div className="grid min-h-[calc(100vh-135px)] xl:grid-cols-[520px_1fr]">
+      <div className="grid min-h-[calc(100vh-140px)] xl:grid-cols-[520px_1fr]">
 
         <section className="border-r border-[#DFE8EA] bg-white">
 
           <div className="p-6 lg:p-8">
+
+            {!settings.can_publish && (
+              <div className="mb-6 rounded-xl border border-[#DCEAEC] bg-[#F6FBFB] px-4 py-3 text-sm leading-6 text-[#55727A]">
+                Build your website as a draft. Choose a plan to publish it.
+              </div>
+            )}
 
             {status && (
               <div className="mb-6 flex items-center gap-2 rounded-xl border border-[#DCEAEC] bg-[#F6FBFB] px-4 py-3 text-xs font-semibold text-[#55727A] xl:hidden">
@@ -837,7 +811,7 @@ export default function WebsiteStudio() {
 
         <section className="bg-[#EFF4F5]">
 
-          <div className="sticky top-[135px] p-6 lg:p-10">
+          <div className="p-6 lg:p-10 xl:sticky xl:top-[140px]">
 
             <div className="mx-auto max-w-[880px]">
 

@@ -26,8 +26,14 @@ from app.schemas.event_sale import (
     EventSaleCreate,
     EventSaleUpdate,
 )
-from app.services.service_access import (
-    require_workspace_service,
+from app.services.subscription_access import (
+    require_paid_workspace_service,
+    require_workspace_service_management,
+)
+from app.services.event_plan_limits import (
+    is_active_selling_event,
+    lock_event_workspace,
+    require_active_event_capacity,
 )
 from app.services.workspace_access import (
     get_user_workspace,
@@ -48,6 +54,8 @@ router = APIRouter(
 def get_event_sales_workspace(
     current_user: dict,
     db: Session,
+    *,
+    require_paid: bool = False,
 ):
     workspace, membership = (
         get_user_workspace(
@@ -56,11 +64,10 @@ def get_event_sales_workspace(
         )
     )
 
-    require_workspace_service(
-        workspace.id,
-        "EVENT_SALES",
-        db,
-    )
+    if require_paid:
+        require_paid_workspace_service(workspace.id, "EVENT_SALES", db)
+    else:
+        require_workspace_service_management(workspace.id, "EVENT_SALES", db)
 
     return workspace, membership
 
@@ -521,8 +528,12 @@ def create_event(
         get_event_sales_workspace(
             current_user,
             db,
+            require_paid=True,
         )
     )
+
+    lock_event_workspace(workspace.id, db)
+    require_paid_workspace_service(workspace.id, "EVENT_SALES", db)
 
     source_slug = (
         payload.slug
@@ -550,6 +561,11 @@ def create_event(
         allow_bib_search=payload.allow_bib_search,
         allow_face_search=payload.allow_face_search,
     )
+
+    if is_active_selling_event(
+        payload.status, payload.sales_end_at, datetime.now(timezone.utc),
+    ):
+        require_active_event_capacity(workspace.id, db)
 
     event = EventGallery(
         workspace_id=
@@ -699,12 +715,21 @@ def update_event(
         )
     )
 
+    lock_event_workspace(workspace.id, db)
+
+    if payload.model_dump(exclude_unset=True) != {"status": "CLOSED"}:
+        require_paid_workspace_service(workspace.id, "EVENT_SALES", db)
+
     event = get_workspace_event(
         db=db,
         workspace_id=
             workspace.id,
         event_id=
             event_id,
+    )
+
+    was_active_selling = is_active_selling_event(
+        event.status, event.sales_end_at, datetime.now(timezone.utc),
     )
 
     values = payload.model_dump(
@@ -943,6 +968,11 @@ def update_event(
             event.allow_face_search,
     )
 
+
+    if not was_active_selling and is_active_selling_event(
+        event.status, event.sales_end_at, datetime.now(timezone.utc),
+    ):
+        require_active_event_capacity(workspace.id, db, exclude_event_id=event.id)
 
     try:
         db.commit()

@@ -27,6 +27,7 @@ from app.services.chip_payments import (
 )
 from app.services.event_order_delivery import send_paid_order_confirmation
 from app.services.event_sales_ledger import record_paid_event_order
+from app.services.subscription_checkout import handle_billing_callback
 
 
 logger = logging.getLogger(__name__)
@@ -253,6 +254,21 @@ async def chip_payment_webhook(
     # A valid CHIP account can contain unrelated payments.
     if order is None:
         db.rollback()
+        try:
+            billing = handle_billing_callback(
+                db, purchase_id, str(payload.get("reference") or ""),
+            )
+        except Exception:
+            db.rollback()
+            raise
+        if billing is not None:
+            return {
+                "received": True,
+                "handled": True,
+                "payment_type": "SUBSCRIPTION",
+                "event_type": event_type,
+                **billing,
+            }
         return {
             "received": True,
             "handled": False,

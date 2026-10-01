@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  ArrowLeft,
   CalendarDays,
   Check,
   ChevronRight,
@@ -31,6 +30,8 @@ import {
   useMemo,
   useState,
 } from "react"
+
+import { DashboardHeader, dashboardPrimaryButtonClass, dashboardButtonClass, dashboardCardClass } from "@/components/dashboard/DashboardPage"
 
 import { apiFetch } from "@/lib/api"
 
@@ -666,51 +667,12 @@ export default function GalleryManager() {
     <main className="min-h-screen bg-[#F5F8F9]">
 
       {/* HEADER */}
-      <header className="sticky top-0 z-30 border-b border-[#DFE8EA] bg-white/95 backdrop-blur">
-
-        <div className="flex min-h-[76px] items-center justify-between gap-5 px-5 lg:px-8">
-
-          <div className="flex items-center gap-4">
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push(
-                  "/dashboard"
-                )
-              }
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#E1EAEC] bg-white text-[#58717A] transition hover:bg-[#F4F8F9]"
-            >
-
-              <ArrowLeft className="h-4 w-4" />
-
-            </button>
-
-
-            <div>
-
-              <div className="flex items-center gap-2">
-
-                <Images className="h-4 w-4 text-[#0A99A7]" />
-
-                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#0A8D99]">
-                  Client Gallery
-                </p>
-
-              </div>
-
-
-              <h1 className="mt-1 text-lg font-semibold tracking-[-0.025em] text-[#183A44]">
-                Gallery Manager
-              </h1>
-
-            </div>
-
-          </div>
-
-
-          <div className="flex items-center gap-2">
-
+      <DashboardHeader
+        title="Gallery Manager"
+        section="Client Gallery"
+        icon={<Images className="h-4 w-4" />}
+        actions={
+          <>
             <button
               type="button"
               onClick={() =>
@@ -718,7 +680,8 @@ export default function GalleryManager() {
                   "/dashboard/galleries/trash"
                 )
               }
-              className="flex h-10 items-center gap-2 rounded-xl border border-[#DCE6E8] bg-white px-3.5 text-sm font-semibold text-[#526D75] transition hover:bg-[#F5F8F9]"
+              aria-label="Open gallery trash"
+              className={dashboardButtonClass}
             >
 
               <Trash2 className="h-4 w-4" />
@@ -742,7 +705,7 @@ export default function GalleryManager() {
                 resetCreateForm()
                 setShowCreate(true)
               }}
-              className="flex h-10 items-center gap-2 rounded-xl bg-[#073B4C] px-4 text-sm font-semibold text-white transition hover:bg-[#0B5363]"
+              className={dashboardPrimaryButtonClass}
             >
 
               <Plus className="h-4 w-4" />
@@ -756,12 +719,9 @@ export default function GalleryManager() {
               </span>
 
             </button>
-
-          </div>
-
-        </div>
-
-      </header>
+          </>
+        }
+      />
 
 
       {/* PAGE */}
@@ -775,9 +735,9 @@ export default function GalleryManager() {
               Client delivery
             </p>
 
-            <h2 className="mt-2 text-[30px] font-semibold tracking-[-0.04em] text-[#112D38]">
+            <h1 className="mt-2 text-[30px] font-semibold tracking-[-0.04em] text-[#112D38]">
               Your galleries
-            </h2>
+            </h1>
 
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#6D8289]">
               Create private spaces for your clients to view, favourite and download their photographs.
@@ -1268,7 +1228,7 @@ function GalleryCard({
     privacy.icon
 
   return (
-    <article className="overflow-hidden rounded-[24px] border border-[#DFE8EA] bg-white shadow-[0_12px_35px_rgba(20,55,65,0.04)]">
+    <article className={`${dashboardCardClass} overflow-hidden`}>
 
       <div className="flex aspect-[16/8.7] items-center justify-center bg-[linear-gradient(135deg,#EAF7F8,#F7FAFB_55%,#E8F1F2)]">
 

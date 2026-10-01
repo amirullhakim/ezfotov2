@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  ArrowLeft,
   CalendarDays,
   Camera,
   ChevronRight,
@@ -23,6 +22,8 @@ import {
   useMemo,
   useState,
 } from "react"
+
+import { DashboardHeader, dashboardPrimaryButtonClass, dashboardCardClass } from "@/components/dashboard/DashboardPage"
 
 import { apiFetch } from "@/lib/api"
 
@@ -620,73 +621,35 @@ export default function EventManager() {
     <main className="min-h-screen bg-[#F5F8F9]">
 
       {/* HEADER */}
-      <header className="sticky top-0 z-30 border-b border-[#DFE8EA] bg-white/95 backdrop-blur">
-
-        <div className="flex min-h-[76px] items-center justify-between gap-5 px-5 lg:px-8">
-
-          <div className="flex items-center gap-4">
-
+      <DashboardHeader
+        title="Event Manager"
+        section="Event Sales"
+        icon={<Camera className="h-4 w-4" />}
+        actions={
+          <>
             <button
               type="button"
-              onClick={() =>
-                router.push(
-                  "/dashboard"
-                )
-              }
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#E1EAEC] bg-white text-[#58717A] transition hover:bg-[#F4F8F9]"
+              onClick={() => {
+                resetCreateForm()
+                setShowCreate(true)
+              }}
+              className={dashboardPrimaryButtonClass}
             >
 
-              <ArrowLeft className="h-4 w-4" />
+              <Plus className="h-4 w-4" />
+
+              <span className="hidden sm:inline">
+                New event
+              </span>
+
+              <span className="sm:hidden">
+                New
+              </span>
 
             </button>
-
-
-            <div>
-
-              <div className="flex items-center gap-2">
-
-                <Camera className="h-4 w-4 text-[#0A99A7]" />
-
-                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#0A8D99]">
-                  Event Sales
-                </p>
-
-              </div>
-
-
-              <h1 className="mt-1 text-lg font-semibold tracking-[-0.025em] text-[#183A44]">
-                Event Manager
-              </h1>
-
-            </div>
-
-          </div>
-
-
-          <button
-            type="button"
-            onClick={() => {
-              resetCreateForm()
-              setShowCreate(true)
-            }}
-            className="flex h-10 items-center gap-2 rounded-xl bg-[#073B4C] px-4 text-sm font-semibold text-white transition hover:bg-[#0B5363]"
-          >
-
-            <Plus className="h-4 w-4" />
-
-            <span className="hidden sm:inline">
-              New event
-            </span>
-
-            <span className="sm:hidden">
-              New
-            </span>
-
-          </button>
-
-        </div>
-
-      </header>
+          </>
+        }
+      />
 
 
       {/* PAGE */}
@@ -700,9 +663,9 @@ export default function EventManager() {
               Photography commerce
             </p>
 
-            <h2 className="mt-2 text-[30px] font-semibold tracking-[-0.04em] text-[#112D38]">
+            <h1 className="mt-2 text-[30px] font-semibold tracking-[-0.04em] text-[#112D38]">
               Your events
-            </h2>
+            </h1>
 
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#6D8289]">
               Upload event photography, prepare searchable galleries and sell original photographs to participants.
@@ -1158,7 +1121,7 @@ function EventCard({
   onDelete: () => void
 }) {
   return (
-    <article className="overflow-hidden rounded-[24px] border border-[#DFE8EA] bg-white shadow-[0_10px_30px_rgba(16,55,65,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(16,55,65,0.07)]">
+    <article className={`${dashboardCardClass} overflow-hidden transition hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(16,55,65,0.07)]`}>
 
       <div className="border-b border-[#E8EFF1] bg-[#F8FBFB] p-5">
 

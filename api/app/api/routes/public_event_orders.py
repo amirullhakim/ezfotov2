@@ -1,667 +1,241 @@
 from __future__ import annotations
-
 import logging
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
-
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Depends,
-    HTTPException,
-    status,
-)
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from app.api.routes.public_event_sales import (
-    event_sales_open,
-    get_public_event_workspace,
-    get_public_live_event,
-)
+from app.api.routes.public_event_sales import event_sales_open, get_public_event_workspace, get_public_live_event
 from app.db.session import get_db
 from app.models import EventOrder, EventOrderItem, EventPhoto
-from app.services.chip_payments import (
-    ChipPaymentError,
-    get_chip_purchase,
-)
-from app.services.event_order_access import (
-    create_event_order_access_token,
-    verify_event_order_access_token,
-)
+from app.services.event_order_access import create_event_order_access_token, verify_event_order_access_token
 from app.services.event_order_delivery import send_paid_order_confirmation
 from app.services.event_sales_ledger import record_paid_event_order
-from app.services.event_sales_pricing import (
-    MAX_CART_PHOTOS,
-    calculate_event_sales_quote,
-)
-from app.services.private_storage import (
-    PrivateStorageError,
-    generate_private_download_url,
-    generate_private_view_url,
-)
-
-
+from app.services.event_sales_pricing import MAX_CART_PHOTOS, calculate_event_sales_quote
+from app.services.chip_payments import ChipPaymentError, get_chip_purchase
+from app.services.private_storage import PrivateStorageError, generate_private_download_url, generate_private_view_url
 logger = logging.getLogger(__name__)
-
-router = APIRouter(
-    prefix="/public/events",
-    tags=["Public Event Orders"],
-)
-
+router = APIRouter(prefix='/public/events', tags=['Public Event Orders'])
 ORDER_EXPIRY_MINUTES = 30
 PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS = 600
-
-EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
+EMAIL_PATTERN = re.compile('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
 
 class PublicCreateOrderRequest(BaseModel):
-    customer_name: str = Field(
-        min_length=2,
-        max_length=150,
-    )
-    customer_email: str = Field(
-        min_length=5,
-        max_length=320,
-    )
-    photo_ids: list[UUID] = Field(
-        min_length=1,
-        max_length=MAX_CART_PHOTOS,
-    )
+    customer_name: str = Field(min_length=2, max_length=150)
+    customer_email: str = Field(min_length=5, max_length=320)
+    photo_ids: list[UUID] = Field(min_length=1, max_length=MAX_CART_PHOTOS)
 
-    @field_validator("customer_name")
+    @field_validator('customer_name')
     @classmethod
     def validate_customer_name(cls, value: str) -> str:
-        cleaned = " ".join(value.strip().split())
-
+        cleaned = ' '.join(value.strip().split())
         if len(cleaned) < 2:
-            raise ValueError("Enter your name.")
-
+            raise ValueError('Enter your name.')
         return cleaned
 
-    @field_validator("customer_email")
+    @field_validator('customer_email')
     @classmethod
     def validate_customer_email(cls, value: str) -> str:
         cleaned = value.strip().lower()
-
         if not EMAIL_PATTERN.match(cleaned):
-            raise ValueError("Enter a valid email address.")
-
+            raise ValueError('Enter a valid email address.')
         return cleaned
 
-
 class PublicOrderStatusRequest(BaseModel):
-    access_token: str = Field(
-        min_length=16,
-        max_length=2048,
-    )
-
+    access_token: str = Field(min_length=16, max_length=2048)
 
 def cents_to_rm(value: int) -> float:
     return round(value / 100, 2)
 
-
-def _chip_purchase_matches_order(
-    *,
-    purchase: dict,
-    order: EventOrder,
-) -> bool:
-    purchase_id = str(purchase.get("id") or "").strip()
-
-    if (
-        not purchase_id
-        or purchase_id != (order.payment_reference or "").strip()
-    ):
+def _chip_purchase_matches_order(*, purchase: dict, order: EventOrder) -> bool:
+    purchase_id = str(purchase.get('id') or '').strip()
+    if not purchase_id or purchase_id != (order.payment_reference or '').strip():
         return False
-
-    reference = str(
-        purchase.get("reference") or ""
-    ).strip().upper()
-
+    reference = str(purchase.get('reference') or '').strip().upper()
     if reference != order.order_number:
         return False
-
-    purchase_details = purchase.get("purchase")
-
+    purchase_details = purchase.get('purchase')
     if not isinstance(purchase_details, dict):
         return False
-
-    currency = str(
-        purchase_details.get("currency") or ""
-    ).strip().upper()
-
+    currency = str(purchase_details.get('currency') or '').strip().upper()
     if currency != order.currency.upper():
         return False
-
-    products = purchase_details.get("products")
-
+    products = purchase_details.get('products')
     if not isinstance(products, list) or not products:
         return False
-
     try:
-        provider_total = Decimal("0")
-
+        provider_total = Decimal('0')
         for product in products:
             if not isinstance(product, dict):
                 return False
-
-            price = Decimal(str(product.get("price")))
-            quantity = Decimal(
-                str(product.get("quantity", "1"))
-            )
-
+            price = Decimal(str(product.get('price')))
+            quantity = Decimal(str(product.get('quantity', '1')))
             provider_total += price * quantity
-
     except (InvalidOperation, TypeError, ValueError):
         return False
-
     return provider_total == Decimal(order.total_cents)
 
-
-def _get_chip_processing_transaction_id(
-    purchase: dict,
-) -> str | None:
-    transaction_data = purchase.get("transaction_data")
-
+def _get_chip_processing_transaction_id(purchase: dict) -> str | None:
+    transaction_data = purchase.get('transaction_data')
     if not isinstance(transaction_data, dict):
         return None
-
-    direct_value = transaction_data.get("processing_tx_id")
-
+    direct_value = transaction_data.get('processing_tx_id')
     if direct_value:
         return str(direct_value)[:255]
-
-    attempts = transaction_data.get("attempts")
-
+    attempts = transaction_data.get('attempts')
     if not isinstance(attempts, list):
         return None
-
     for attempt in reversed(attempts):
         if not isinstance(attempt, dict):
             continue
-
-        value = attempt.get("processing_tx_id")
-
+        value = attempt.get('processing_tx_id')
         if value:
             return str(value)[:255]
-
     return None
 
-
-def _reconcile_pending_chip_order(
-    *,
-    db: Session,
-    order: EventOrder,
-) -> None:
-    if order.status != "PENDING_PAYMENT":
+def _reconcile_pending_chip_order(*, db: Session, order: EventOrder) -> None:
+    if order.status != 'PENDING_PAYMENT':
         return
-
-    if (
-        order.payment_provider != "CHIP_FPX"
-        or not order.payment_reference
-    ):
+    if order.payment_provider != 'CHIP_FPX' or not order.payment_reference:
         return
-
     try:
         purchase = get_chip_purchase(order.payment_reference)
     except ChipPaymentError:
-        # Keep the local status so a later request can retry.
         return
-
-    # A webhook may have updated this order during the network request.
-    # Refresh under a lock before deciding whether to change its status.
+    # Refresh under a lock so a webhook cannot be overwritten by stale state.
     db.refresh(order, with_for_update=True)
-
-    if order.status != "PENDING_PAYMENT":
+    if order.status != 'PENDING_PAYMENT':
         return
-
-    if not _chip_purchase_matches_order(
-        purchase=purchase,
-        order=order,
-    ):
+    if not _chip_purchase_matches_order(purchase=purchase, order=order):
         return
-
-    chip_status = str(
-        purchase.get("status") or ""
-    ).strip().lower()
-
+    chip_status = str(purchase.get('status') or '').strip().lower()
     new_status: str | None = None
-
-    if chip_status == "paid":
-        new_status = "PAID"
-    elif chip_status == "error":
-        new_status = "PAYMENT_FAILED"
-    elif chip_status in {"cancelled", "canceled"}:
-        new_status = "CANCELLED"
-    elif chip_status == "expired":
-        new_status = "EXPIRED"
-
+    if chip_status == 'paid':
+        new_status = 'PAID'
+    elif chip_status == 'error':
+        new_status = 'PAYMENT_FAILED'
+    elif chip_status in {'cancelled', 'canceled'}:
+        new_status = 'CANCELLED'
+    elif chip_status == 'expired':
+        new_status = 'EXPIRED'
     if new_status is None:
         return
-
     order.status = new_status
-
-    provider_transaction_id = _get_chip_processing_transaction_id(
-        purchase
-    )
-
-    if provider_transaction_id and not order.provider_transaction_id:
+    provider_transaction_id = _get_chip_processing_transaction_id(purchase)
+    if provider_transaction_id and (not order.provider_transaction_id):
         order.provider_transaction_id = provider_transaction_id
-
-    if new_status == "PAID" and order.paid_at is None:
+    if new_status == 'PAID' and order.paid_at is None:
         order.paid_at = datetime.now(timezone.utc)
-
     try:
-        # Commit the paid status and matching ledger receipt together.
-        if new_status == "PAID":
-            record_paid_event_order(
-                db=db,
-                order=order,
-                source="RECONCILIATION",
-            )
-
+        # The paid status and ledger receipt commit together.
+        if new_status == 'PAID':
+            record_paid_event_order(db=db, order=order, source='RECONCILIATION')
         db.commit()
         db.refresh(order)
-
     except Exception:
         db.rollback()
-        logger.exception(
-            "Unable to reconcile CHIP payment and ledger"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to reconcile the payment status.",
-        )
+        logger.exception('Unable to reconcile CHIP payment and ledger')
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to reconcile the payment status.')
 
-
-def _expire_pending_order_if_needed(
-    *,
-    db: Session,
-    order: EventOrder,
-) -> None:
-    # Prevent expiry from overwriting a concurrently confirmed payment.
+def _expire_pending_order_if_needed(*, db: Session, order: EventOrder) -> None:
+    # Refresh under a lock so a webhook cannot be overwritten by stale state.
     db.refresh(order, with_for_update=True)
-
-    if order.status != "PENDING_PAYMENT":
+    if order.status != 'PENDING_PAYMENT':
         return
-
     if order.expires_at is None:
         return
-
     expires_at = order.expires_at
-
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
-
     now = datetime.now(timezone.utc)
-
     if now < expires_at:
         return
-
-    order.status = "EXPIRED"
-
+    order.status = 'EXPIRED'
     try:
         db.commit()
         db.refresh(order)
     except Exception:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to expire the order.",
-        )
-
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to expire the order.')
 
 def generate_order_number(db: Session) -> str:
-    date_part = datetime.now(timezone.utc).strftime("%Y%m%d")
-
+    date_part = datetime.now(timezone.utc).strftime('%Y%m%d')
     for _ in range(10):
         random_part = secrets.token_hex(4).upper()
-        order_number = f"EZF-{date_part}-{random_part}"
-
-        existing = db.scalar(
-            select(EventOrder.id).where(
-                EventOrder.order_number == order_number
-            )
-        )
-
+        order_number = f'EZF-{date_part}-{random_part}'
+        existing = db.scalar(select(EventOrder.id).where(EventOrder.order_number == order_number))
         if existing is None:
             return order_number
+    raise RuntimeError('Unable to generate a unique order number.')
 
-    raise RuntimeError("Unable to generate a unique order number.")
-
-
-@router.post(
-    "/{workspace_slug}/{event_slug}/orders",
-    status_code=status.HTTP_201_CREATED,
-)
-def create_public_event_order(
-    workspace_slug: str,
-    event_slug: str,
-    payload: PublicCreateOrderRequest,
-    db: Session = Depends(get_db),
-):
-    workspace = get_public_event_workspace(
-        db=db,
-        workspace_slug=workspace_slug,
-    )
-
-    event = get_public_live_event(
-        db=db,
-        workspace=workspace,
-        event_slug=event_slug,
-    )
-
+@router.post('/{workspace_slug}/{event_slug}/orders', status_code=status.HTTP_201_CREATED)
+def create_public_event_order(workspace_slug: str, event_slug: str, payload: PublicCreateOrderRequest, db: Session=Depends(get_db)):
+    workspace = get_public_event_workspace(db=db, workspace_slug=workspace_slug)
+    event = get_public_live_event(db=db, workspace=workspace, event_slug=event_slug)
     if not event_sales_open(event):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Sales are currently closed for this event.",
-        )
-
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Sales are currently closed for this event.')
     try:
-        quote = calculate_event_sales_quote(
-            db=db,
-            event=event,
-            photo_ids=payload.photo_ids,
-        )
+        quote = calculate_event_sales_quote(db=db, event=event, photo_ids=payload.photo_ids, lock_subscription=True)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     try:
         order_number = generate_order_number(db)
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=ORDER_EXPIRY_MINUTES)
-
-        order = EventOrder(
-            workspace_id=workspace.id,
-            event_id=event.id,
-            order_number=order_number,
-            customer_name=payload.customer_name,
-            customer_email=payload.customer_email,
-            status="PENDING_PAYMENT",
-            currency=event.currency,
-            item_count=quote.selected_count,
-            unit_price_cents=quote.unit_price_cents,
-            regular_subtotal_cents=quote.regular_subtotal_cents,
-            discount_cents=quote.discount_cents,
-            photo_subtotal_cents=quote.photo_subtotal_cents,
-            service_fee_cents=quote.service_fee_cents,
-            total_cents=quote.total_cents,
-            bundle_quantity=quote.bundle_quantity,
-            bundle_price_cents=quote.bundle_price_cents,
-            bundle_count=quote.bundle_count,
-            expires_at=expires_at,
-        )
-
+        order = EventOrder(workspace_id=workspace.id, event_id=event.id, order_number=order_number, customer_name=payload.customer_name, customer_email=payload.customer_email, status='PENDING_PAYMENT', currency=event.currency, item_count=quote.selected_count, unit_price_cents=quote.unit_price_cents, regular_subtotal_cents=quote.regular_subtotal_cents, discount_cents=quote.discount_cents, photo_subtotal_cents=quote.photo_subtotal_cents, service_fee_cents=quote.service_fee_cents, total_cents=quote.total_cents, bundle_quantity=quote.bundle_quantity, bundle_price_cents=quote.bundle_price_cents, bundle_count=quote.bundle_count, expires_at=expires_at, pricing_subscription_id=quote.pricing_subscription_id, pricing_plan_code=quote.pricing_plan_code, pricing_plan_name=quote.pricing_plan_name, commission_bps=quote.commission_bps, commission_cents=quote.commission_cents, photographer_share_cents=quote.photographer_share_cents, platform_share_cents=quote.platform_share_cents)
         db.add(order)
         db.flush()
-
         access_token = create_event_order_access_token(order.id)
-
         for photo in quote.photos:
-            db.add(
-                EventOrderItem(
-                    workspace_id=workspace.id,
-                    event_id=event.id,
-                    order_id=order.id,
-                    photo_id=photo.id,
-                    unit_price_cents=quote.unit_price_cents,
-                )
-            )
-
+            db.add(EventOrderItem(workspace_id=workspace.id, event_id=event.id, order_id=order.id, photo_id=photo.id, unit_price_cents=quote.unit_price_cents))
         db.commit()
         db.refresh(order)
-
     except Exception:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to create the order.",
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to create the order.')
+    return {'order': {'id': str(order.id), 'order_number': order.order_number, 'status': order.status, 'customer_name': order.customer_name, 'customer_email': order.customer_email, 'currency': order.currency, 'item_count': order.item_count, 'created_at': order.created_at, 'expires_at': order.expires_at}, 'access': {'token': access_token}, 'pricing': {'regular_subtotal_cents': order.regular_subtotal_cents, 'regular_subtotal_rm': cents_to_rm(order.regular_subtotal_cents), 'discount_cents': order.discount_cents, 'discount_rm': cents_to_rm(order.discount_cents), 'photo_subtotal_cents': order.photo_subtotal_cents, 'photo_subtotal_rm': cents_to_rm(order.photo_subtotal_cents), 'service_fee_cents': order.service_fee_cents, 'service_fee_rm': cents_to_rm(order.service_fee_cents), 'total_cents': order.total_cents, 'total_rm': cents_to_rm(order.total_cents)}, 'payment': {'required': True, 'ready': True, 'provider': 'CHIP_FPX', 'message': 'FPX payment is ready.'}}
 
-    return {
-        "order": {
-            "id": str(order.id),
-            "order_number": order.order_number,
-            "status": order.status,
-            "customer_name": order.customer_name,
-            "customer_email": order.customer_email,
-            "currency": order.currency,
-            "item_count": order.item_count,
-            "created_at": order.created_at,
-            "expires_at": order.expires_at,
-        },
-        "access": {
-            "token": access_token,
-        },
-        "pricing": {
-            "regular_subtotal_cents": order.regular_subtotal_cents,
-            "regular_subtotal_rm": cents_to_rm(
-                order.regular_subtotal_cents
-            ),
-            "discount_cents": order.discount_cents,
-            "discount_rm": cents_to_rm(order.discount_cents),
-            "photo_subtotal_cents": order.photo_subtotal_cents,
-            "photo_subtotal_rm": cents_to_rm(
-                order.photo_subtotal_cents
-            ),
-            "service_fee_cents": order.service_fee_cents,
-            "service_fee_rm": cents_to_rm(order.service_fee_cents),
-            "total_cents": order.total_cents,
-            "total_rm": cents_to_rm(order.total_cents),
-        },
-        "payment": {
-            "required": True,
-            "ready": True,
-            "provider": "CHIP_FPX",
-            "message": "FPX payment is ready.",
-        },
-    }
-
-
-@router.post("/orders/{order_number}/status")
-def get_public_event_order_status(
-    order_number: str,
-    payload: PublicOrderStatusRequest,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-):
+@router.post('/orders/{order_number}/status')
+def get_public_event_order_status(order_number: str, payload: PublicOrderStatusRequest, background_tasks: BackgroundTasks, db: Session=Depends(get_db)):
     cleaned_order_number = order_number.strip().upper()
-
-    order = db.scalar(
-        select(EventOrder).where(
-            EventOrder.order_number == cleaned_order_number
-        )
-    )
-
-    if order is None or not verify_event_order_access_token(
-        order_id=order.id,
-        token=payload.access_token,
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Order not found.",
-        )
-
-    _reconcile_pending_chip_order(
-        db=db,
-        order=order,
-    )
-
-    _expire_pending_order_if_needed(
-        db=db,
-        order=order,
-    )
-
-    paid_order_id = order.id if order.status == "PAID" else None
-
-    # Build the response while the order fields are still loaded.
-    result = {
-        "order": {
-            "order_number": order.order_number,
-            "status": order.status,
-            "currency": order.currency,
-            "item_count": order.item_count,
-            "photo_subtotal_cents": order.photo_subtotal_cents,
-            "photo_subtotal_rm": cents_to_rm(
-                order.photo_subtotal_cents
-            ),
-            "service_fee_cents": order.service_fee_cents,
-            "service_fee_rm": cents_to_rm(order.service_fee_cents),
-            "total_cents": order.total_cents,
-            "total_rm": cents_to_rm(order.total_cents),
-            "paid_at": order.paid_at,
-            "expires_at": order.expires_at,
-        }
-    }
-
-    # Release any order lock before the email task opens its own session.
+    order = db.scalar(select(EventOrder).where(EventOrder.order_number == cleaned_order_number))
+    if order is None or not verify_event_order_access_token(order_id=order.id, token=payload.access_token):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found.')
+    _reconcile_pending_chip_order(db=db, order=order)
+    _expire_pending_order_if_needed(db=db, order=order)
+    paid_order_id = order.id if order.status == 'PAID' else None
+    result = {'order': {'order_number': order.order_number, 'status': order.status, 'currency': order.currency, 'item_count': order.item_count, 'photo_subtotal_cents': order.photo_subtotal_cents, 'photo_subtotal_rm': cents_to_rm(order.photo_subtotal_cents), 'service_fee_cents': order.service_fee_cents, 'service_fee_rm': cents_to_rm(order.service_fee_cents), 'total_cents': order.total_cents, 'total_rm': cents_to_rm(order.total_cents), 'paid_at': order.paid_at, 'expires_at': order.expires_at}}
+    # Release any row lock before the background task opens another session.
     db.rollback()
-
     if paid_order_id is not None:
-        background_tasks.add_task(
-            send_paid_order_confirmation,
-            paid_order_id,
-        )
-
+        background_tasks.add_task(send_paid_order_confirmation, paid_order_id)
     return result
 
-
-@router.post("/orders/{order_number}/downloads")
-def get_public_event_order_downloads(
-    order_number: str,
-    payload: PublicOrderStatusRequest,
-    db: Session = Depends(get_db),
-):
+@router.post('/orders/{order_number}/downloads')
+def get_public_event_order_downloads(order_number: str, payload: PublicOrderStatusRequest, db: Session=Depends(get_db)):
     cleaned_order_number = order_number.strip().upper()
-
-    order = db.scalar(
-        select(EventOrder).where(
-            EventOrder.order_number == cleaned_order_number
-        )
-    )
-
-    if order is None or not verify_event_order_access_token(
-        order_id=order.id,
-        token=payload.access_token,
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Order not found.",
-        )
-
-    if order.status != "PAID":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Purchased photos are available "
-                "only after payment is confirmed."
-            ),
-        )
-
-    rows = db.execute(
-        select(EventOrderItem, EventPhoto)
-        .join(
-            EventPhoto,
-            EventPhoto.id == EventOrderItem.photo_id,
-        )
-        .where(
-            EventOrderItem.order_id == order.id,
-            EventOrderItem.workspace_id == order.workspace_id,
-            EventOrderItem.event_id == order.event_id,
-            EventPhoto.workspace_id == order.workspace_id,
-            EventPhoto.event_id == order.event_id,
-        )
-        .order_by(
-            EventOrderItem.created_at.asc(),
-            EventOrderItem.id.asc(),
-        )
-    ).all()
-
+    order = db.scalar(select(EventOrder).where(EventOrder.order_number == cleaned_order_number))
+    if order is None or not verify_event_order_access_token(order_id=order.id, token=payload.access_token):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Order not found.')
+    if order.status != 'PAID':
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Purchased photos are available only after payment is confirmed.')
+    rows = db.execute(select(EventOrderItem, EventPhoto).join(EventPhoto, EventPhoto.id == EventOrderItem.photo_id).where(EventOrderItem.order_id == order.id, EventOrderItem.workspace_id == order.workspace_id, EventOrderItem.event_id == order.event_id, EventPhoto.workspace_id == order.workspace_id, EventPhoto.event_id == order.event_id).order_by(EventOrderItem.created_at.asc(), EventOrderItem.id.asc())).all()
     if len(rows) != order.item_count:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to prepare all purchased photos.",
-        )
-
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Unable to prepare all purchased photos.')
     download_items = []
-
     try:
         for order_item, photo in rows:
-            download_url = generate_private_download_url(
-                object_key=photo.original_object_key,
-                expires_seconds=PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS,
-                download_filename=photo.original_filename,
-            )
-
+            download_url = generate_private_download_url(object_key=photo.original_object_key, expires_seconds=PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS, download_filename=photo.original_filename)
             view_url = None
-
-            if (
-                (photo.content_type or "")
-                .split(";", 1)[0]
-                .strip()
-                .lower()
-            ) in {
-                "image/jpeg",
-                "image/png",
-                "image/webp",
-                "image/avif",
-                "image/gif",
-            }:
-                view_url = generate_private_view_url(
-                    object_key=photo.original_object_key,
-                    expires_seconds=PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS,
-                )
-
-            download_items.append(
-                {
-                    "photo_id": str(photo.id),
-                    "view_url": view_url,
-                    "filename": photo.original_filename,
-                    "content_type": photo.content_type,
-                    "size_bytes": photo.size_bytes,
-                    "download_url": download_url,
-                }
-            )
-
+            if (photo.content_type or '').split(';', 1)[0].strip().lower() in {'image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif'}:
+                view_url = generate_private_view_url(object_key=photo.original_object_key, expires_seconds=PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS)
+            download_items.append({'photo_id': str(photo.id), 'view_url': view_url, 'filename': photo.original_filename, 'content_type': photo.content_type, 'size_bytes': photo.size_bytes, 'download_url': download_url})
     except PrivateStorageError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "Unable to prepare the purchased "
-                "photo downloads right now."
-            ),
-        ) from exc
-
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='Unable to prepare the purchased photo downloads right now.') from exc
     generated_at = datetime.now(timezone.utc)
-    expires_at = generated_at + timedelta(
-        seconds=PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS
-    )
-
-    return {
-        "order": {
-            "order_number": order.order_number,
-            "status": order.status,
-            "currency": order.currency,
-            "item_count": order.item_count,
-            "photo_subtotal_cents": order.photo_subtotal_cents,
-            "photo_subtotal_rm": cents_to_rm(
-                order.photo_subtotal_cents
-            ),
-            "service_fee_cents": order.service_fee_cents,
-            "service_fee_rm": cents_to_rm(order.service_fee_cents),
-            "total_cents": order.total_cents,
-            "total_rm": cents_to_rm(order.total_cents),
-        },
-        "downloads": {
-            "expires_in_seconds": PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS,
-            "expires_at": expires_at,
-            "items": download_items,
-        },
-    }
+    expires_at = generated_at + timedelta(seconds=PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS)
+    return {'order': {'order_number': order.order_number, 'status': order.status, 'currency': order.currency, 'item_count': order.item_count, 'photo_subtotal_cents': order.photo_subtotal_cents, 'photo_subtotal_rm': cents_to_rm(order.photo_subtotal_cents), 'service_fee_cents': order.service_fee_cents, 'service_fee_rm': cents_to_rm(order.service_fee_cents), 'total_cents': order.total_cents, 'total_rm': cents_to_rm(order.total_cents)}, 'downloads': {'expires_in_seconds': PURCHASE_DOWNLOAD_URL_EXPIRY_SECONDS, 'expires_at': expires_at, 'items': download_items}}

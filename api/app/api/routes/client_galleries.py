@@ -31,8 +31,9 @@ from app.services.gallery_security import (
     hash_gallery_password,
     hash_private_gallery_token,
 )
-from app.services.service_access import (
-    require_workspace_service,
+from app.services.subscription_access import (
+    require_paid_workspace_service,
+    require_workspace_service_management,
 )
 from app.services.workspace_access import (
     get_user_workspace,
@@ -53,6 +54,8 @@ router = APIRouter(
 def get_gallery_workspace(
     current_user: dict,
     db: Session,
+    *,
+    require_paid: bool = False,
 ):
     workspace, membership = (
         get_user_workspace(
@@ -61,11 +64,10 @@ def get_gallery_workspace(
         )
     )
 
-    require_workspace_service(
-        workspace.id,
-        "CLIENT_GALLERY",
-        db,
-    )
+    if require_paid:
+        require_paid_workspace_service(workspace.id, "CLIENT_GALLERY", db)
+    else:
+        require_workspace_service_management(workspace.id, "CLIENT_GALLERY", db)
 
     return workspace, membership
 
@@ -273,6 +275,9 @@ def gallery_response(
         "description":
             gallery.description,
 
+        "price_rm": str(gallery.price_rm) if gallery.price_rm is not None else None,
+        "show_on_website": gallery.show_on_website,
+
         "shoot_date":
             gallery.shoot_date,
 
@@ -387,6 +392,7 @@ def create_gallery(
         get_gallery_workspace(
             current_user,
             db,
+            require_paid=True,
         )
     )
 
@@ -479,6 +485,9 @@ def create_gallery(
 
         shoot_date=
             payload.shoot_date,
+
+        price_rm=payload.price_rm,
+        show_on_website=payload.show_on_website,
 
         privacy_mode=
             payload.privacy_mode,
@@ -601,6 +610,14 @@ def update_gallery(
             db,
         )
     )
+
+    submitted = payload.model_dump(exclude_unset=True)
+    hide_only = bool(submitted) and all(
+        field in {"is_published", "show_on_website"} and value is False
+        for field, value in submitted.items()
+    )
+    if not hide_only:
+        require_paid_workspace_service(workspace.id, "CLIENT_GALLERY", db)
 
     gallery = (
         get_workspace_gallery(
@@ -806,6 +823,15 @@ def update_gallery(
         )
         or gallery.privacy_mode
     )
+
+    if "price_rm" in values:
+        gallery.price_rm = values["price_rm"]
+    if requested_mode == "PRIVATE":
+        if values.get("show_on_website") is True:
+            raise HTTPException(422, "Private galleries cannot be listed on the website.")
+        gallery.show_on_website = False
+    elif "show_on_website" in values:
+        gallery.show_on_website = values["show_on_website"]
 
     raw_password = (
         values.get(

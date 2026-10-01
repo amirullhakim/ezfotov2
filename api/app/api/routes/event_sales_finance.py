@@ -72,6 +72,16 @@ def get_event_sales_finance(
         ).where(*ledger_filters)
     ).one()
 
+    # Sum saved ledger snapshots; never apply today's plan to an older sale.
+    commission_count, commission_cents, photographer_cents, platform_cents = db.execute(
+        select(
+            func.count(EventSalesPaymentLedger.pricing_subscription_id),
+            func.coalesce(func.sum(EventSalesPaymentLedger.commission_cents), 0),
+            func.coalesce(func.sum(EventSalesPaymentLedger.photographer_share_cents), 0),
+            func.coalesce(func.sum(EventSalesPaymentLedger.platform_share_cents), 0),
+        ).where(*ledger_filters)
+    ).one()
+
     paid_orders = db.scalar(
         select(func.count(EventOrder.id)).where(
             EventOrder.workspace_id == workspace.id,
@@ -134,6 +144,12 @@ def get_event_sales_finance(
             "photo_sales_cents": int(photo_cents),
             "service_fees_cents": int(fee_cents),
             "total_collected_cents": int(total_cents),
+            "commission_recorded_payments": int(commission_count),
+            "commission_missing_payments": int(recorded_count) - int(commission_count),
+            "commission_cents": int(commission_cents) if commission_count else None,
+            "photographer_share_cents": int(photographer_cents) if commission_count else None,
+            "platform_share_cents": int(platform_cents) if commission_count else None,
+
         },
         "coverage": {
             "paid_orders": int(paid_orders),
@@ -155,6 +171,13 @@ def get_event_sales_finance(
                 "service_fee_cents":
                     entry.service_fee_cents,
                 "total_cents": entry.total_cents,
+                "pricing_plan_code": entry.pricing_plan_code,
+                "pricing_plan_name": entry.pricing_plan_name,
+                "commission_bps": entry.commission_bps,
+                "commission_cents": entry.commission_cents,
+                "photographer_share_cents": entry.photographer_share_cents,
+                "platform_share_cents": entry.platform_share_cents,
+
                 "paid_at": entry.paid_at,
                 "recorded_at": entry.recorded_at,
                 "source": entry.source,

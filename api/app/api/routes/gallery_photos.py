@@ -1,3 +1,9 @@
+from app.services.workspace_storage import (
+    complete_upload_reservation,
+    lock_storage_workspace,
+    require_upload_reservation,
+    reserve_photo_uploads,
+)
 import re
 import uuid
 
@@ -43,8 +49,9 @@ from app.services.private_storage import (
     generate_private_view_url,
     get_private_object_metadata,
 )
-from app.services.service_access import (
-    require_workspace_service,
+from app.services.subscription_access import (
+    require_paid_workspace_service,
+    require_workspace_service_management,
 )
 from app.services.workspace_access import (
     get_user_workspace,
@@ -79,6 +86,8 @@ ALLOWED_CONTENT_TYPES = {
 def get_gallery_workspace(
     current_user: dict,
     db: Session,
+    *,
+    require_paid: bool = False,
 ):
     workspace, membership = (
         get_user_workspace(
@@ -87,11 +96,10 @@ def get_gallery_workspace(
         )
     )
 
-    require_workspace_service(
-        workspace.id,
-        "CLIENT_GALLERY",
-        db,
-    )
+    if require_paid:
+        require_paid_workspace_service(workspace.id, "CLIENT_GALLERY", db)
+    else:
+        require_workspace_service_management(workspace.id, "CLIENT_GALLERY", db)
 
     return (
         workspace,
@@ -309,8 +317,12 @@ def create_gallery_upload_url(
         get_gallery_workspace(
             current_user,
             db,
+            require_paid=True,
         )
     )
+
+    lock_storage_workspace(workspace.id, db)
+    require_paid_workspace_service(workspace.id, "CLIENT_GALLERY", db)
 
     gallery = (
         get_workspace_gallery(
@@ -321,6 +333,9 @@ def create_gallery_upload_url(
                 gallery_id,
         )
     )
+
+    if gallery.deleted_at is not None:
+        raise HTTPException(409, "Restore this gallery before uploading photos.")
 
     validate_upload(
         content_type=
@@ -356,6 +371,11 @@ def create_gallery_upload_url(
         f"{extension}"
     )
 
+    reserve_photo_uploads(
+        workspace.id, "CLIENT_GALLERY", gallery.id,
+        [{"object_key": object_key, "content_type": payload.content_type, "file_size": payload.file_size}], db,
+    )
+
     try:
         upload_url = (
             generate_private_upload_url(
@@ -365,6 +385,7 @@ def create_gallery_upload_url(
                     payload.content_type,
                 expires_seconds=
                     900,
+                file_size=payload.file_size,
             )
         )
 
@@ -378,6 +399,8 @@ def create_gallery_upload_url(
             ),
         ) from exc
 
+
+    db.commit()
 
     return {
         "upload_url":
@@ -421,8 +444,12 @@ def complete_gallery_upload(
         get_gallery_workspace(
             current_user,
             db,
+            require_paid=True,
         )
     )
+
+    lock_storage_workspace(workspace.id, db)
+    require_paid_workspace_service(workspace.id, "CLIENT_GALLERY", db)
 
     gallery = (
         get_workspace_gallery(
@@ -433,6 +460,9 @@ def complete_gallery_upload(
                 gallery_id,
         )
     )
+
+    if gallery.deleted_at is not None:
+        raise HTTPException(409, "Restore this gallery before uploading photos.")
 
     if (
         payload.content_type
@@ -500,6 +530,10 @@ def complete_gallery_upload(
             existing_photo
         )
 
+
+    reservation = require_upload_reservation(
+        workspace.id, "CLIENT_GALLERY", gallery.id, payload.object_key, db,
+    )
 
     try:
         metadata = (
@@ -646,6 +680,8 @@ def complete_gallery_upload(
         photo
     )
 
+    complete_upload_reservation(reservation, actual_size, actual_content_type, db)
+
     db.commit()
     db.refresh(
         photo
@@ -750,6 +786,7 @@ def set_gallery_photo_cover(
         get_gallery_workspace(
             current_user,
             db,
+            require_paid=True,
         )
     )
 
@@ -889,6 +926,7 @@ def update_gallery_photo_visibility(
         get_gallery_workspace(
             current_user,
             db,
+            require_paid=visible,
         )
     )
 
@@ -1085,135 +1123,6 @@ def update_gallery_photo_visibility(
 # --------------------------------------------------
 
 
-@router.patch(
-    "/{gallery_id}/photos/{photo_id}/cover"
-)
-def set_gallery_photo_cover(
-    gallery_id: str,
-    photo_id: str,
-    current_user: dict = Depends(
-        get_current_user
-    ),
-    db: Session = Depends(
-        get_db
-    ),
-):
-    workspace, _ = (
-        get_gallery_workspace(
-            current_user,
-            db,
-        )
-    )
-
-
-    gallery = (
-        get_workspace_gallery(
-            db=db,
-            workspace_id=
-                workspace.id,
-            gallery_id=
-                gallery_id,
-        )
-    )
-
-
-    try:
-        parsed_photo_id = (
-            uuid.UUID(
-                photo_id
-            )
-        )
-
-    except ValueError:
-        raise HTTPException(
-            status_code=
-                status.HTTP_400_BAD_REQUEST,
-            detail=
-                "Invalid photo ID.",
-        )
-
-
-    photo = db.scalar(
-        select(
-            GalleryPhoto
-        ).where(
-            GalleryPhoto.id
-            == parsed_photo_id,
-
-            GalleryPhoto.workspace_id
-            == workspace.id,
-
-            GalleryPhoto.gallery_id
-            == gallery.id,
-
-            GalleryPhoto.status
-            == "ACTIVE",
-        )
-    )
-
-
-    if not photo:
-        raise HTTPException(
-            status_code=
-                status.HTTP_404_NOT_FOUND,
-            detail=
-                "Photo not found.",
-        )
-
-
-    if not photo.is_visible:
-        raise HTTPException(
-            status_code=
-                status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "A hidden photo cannot "
-                "be used as the gallery cover."
-            ),
-        )
-
-
-    # Remove cover status from every photo
-    # in this gallery.
-    db.execute(
-        update(
-            GalleryPhoto
-        )
-        .where(
-            GalleryPhoto.workspace_id
-            == workspace.id,
-
-            GalleryPhoto.gallery_id
-            == gallery.id,
-
-            GalleryPhoto.status
-            == "ACTIVE",
-        )
-        .values(
-            is_cover=False
-        )
-    )
-
-
-    photo.is_cover = True
-
-
-    db.commit()
-
-    db.refresh(
-        photo
-    )
-
-
-    return {
-        "ok":
-            True,
-
-        "photo_id":
-            str(photo.id),
-
-        "is_cover":
-            True,
-    }
 
 
 # --------------------------------------------------
@@ -1221,216 +1130,6 @@ def set_gallery_photo_cover(
 # --------------------------------------------------
 
 
-@router.patch(
-    "/{gallery_id}/photos/{photo_id}/visibility"
-)
-def update_gallery_photo_visibility(
-    gallery_id: str,
-    photo_id: str,
-
-    visible: bool,
-
-    current_user: dict = Depends(
-        get_current_user
-    ),
-    db: Session = Depends(
-        get_db
-    ),
-):
-    workspace, _ = (
-        get_gallery_workspace(
-            current_user,
-            db,
-        )
-    )
-
-
-    gallery = (
-        get_workspace_gallery(
-            db=db,
-            workspace_id=
-                workspace.id,
-            gallery_id=
-                gallery_id,
-        )
-    )
-
-
-    try:
-        parsed_photo_id = (
-            uuid.UUID(
-                photo_id
-            )
-        )
-
-    except ValueError:
-        raise HTTPException(
-            status_code=
-                status.HTTP_400_BAD_REQUEST,
-            detail=
-                "Invalid photo ID.",
-        )
-
-
-    photo = db.scalar(
-        select(
-            GalleryPhoto
-        ).where(
-            GalleryPhoto.id
-            == parsed_photo_id,
-
-            GalleryPhoto.workspace_id
-            == workspace.id,
-
-            GalleryPhoto.gallery_id
-            == gallery.id,
-
-            GalleryPhoto.status
-            == "ACTIVE",
-        )
-    )
-
-
-    if not photo:
-        raise HTTPException(
-            status_code=
-                status.HTTP_404_NOT_FOUND,
-            detail=
-                "Photo not found.",
-        )
-
-
-    # Nothing to change.
-    if (
-        photo.is_visible
-        == visible
-    ):
-        return {
-            "ok":
-                True,
-
-            "photo_id":
-                str(photo.id),
-
-            "is_visible":
-                photo.is_visible,
-
-            "is_cover":
-                photo.is_cover,
-        }
-
-
-    # --------------------------------------------------
-    # SHOW
-    # --------------------------------------------------
-
-    if visible:
-        photo.is_visible = True
-
-
-        existing_cover = db.scalar(
-            select(
-                GalleryPhoto
-            ).where(
-                GalleryPhoto.workspace_id
-                == workspace.id,
-
-                GalleryPhoto.gallery_id
-                == gallery.id,
-
-                GalleryPhoto.status
-                == "ACTIVE",
-
-                GalleryPhoto.is_visible.is_(
-                    True
-                ),
-
-                GalleryPhoto.is_cover.is_(
-                    True
-                ),
-
-                GalleryPhoto.id
-                != photo.id,
-            )
-        )
-
-
-        # If there is currently no usable cover,
-        # make this newly-visible image the cover.
-        if not existing_cover:
-            photo.is_cover = True
-
-
-    # --------------------------------------------------
-    # HIDE
-    # --------------------------------------------------
-
-    else:
-        was_cover = (
-            photo.is_cover
-        )
-
-
-        photo.is_visible = False
-
-        photo.is_cover = False
-
-
-        if was_cover:
-            replacement_cover = db.scalar(
-                select(
-                    GalleryPhoto
-                )
-                .where(
-                    GalleryPhoto.workspace_id
-                    == workspace.id,
-
-                    GalleryPhoto.gallery_id
-                    == gallery.id,
-
-                    GalleryPhoto.id
-                    != photo.id,
-
-                    GalleryPhoto.status
-                    == "ACTIVE",
-
-                    GalleryPhoto.is_visible.is_(
-                        True
-                    ),
-                )
-                .order_by(
-                    GalleryPhoto.sort_order,
-                    GalleryPhoto.created_at,
-                )
-            )
-
-
-            if replacement_cover:
-                replacement_cover.is_cover = (
-                    True
-                )
-
-
-    db.commit()
-
-    db.refresh(
-        photo
-    )
-
-
-    return {
-        "ok":
-            True,
-
-        "photo_id":
-            str(photo.id),
-
-        "is_visible":
-            photo.is_visible,
-
-        "is_cover":
-            photo.is_cover,
-    }
 
 
 # --------------------------------------------------

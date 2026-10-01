@@ -1,15 +1,20 @@
 "use client"
 
-import Link from "next/link"
 import { useEffect, useState } from "react"
 import {
-  ArrowLeft,
   ChevronLeft,
   ChevronRight,
-  CircleDollarSign,
+  RefreshCw,
   Loader2,
   ShieldCheck,
 } from "lucide-react"
+
+import DashboardPage, {
+  DashboardMetric,
+  dashboardButtonClass,
+  dashboardCardClass,
+  formatDashboardMoney as money,
+} from "@/components/dashboard/DashboardPage"
 
 import { apiFetch } from "@/lib/api"
 
@@ -20,6 +25,11 @@ type Finance = {
     photo_sales_cents: number
     service_fees_cents: number
     total_collected_cents: number
+    commission_recorded_payments: number
+    commission_missing_payments: number
+    commission_cents: number | null
+    photographer_share_cents: number | null
+    platform_share_cents: number | null
   }
   coverage: {
     paid_orders: number
@@ -34,6 +44,11 @@ type Finance = {
     photo_sales_cents: number
     service_fees_cents: number
     total_collected_cents: number
+    commission_recorded_payments: number
+    commission_missing_payments: number
+    commission_cents: number | null
+    photographer_share_cents: number | null
+    platform_share_cents: number | null
   }[]
   transactions: {
     order_number: string
@@ -43,6 +58,12 @@ type Finance = {
     photo_sales_cents: number
     service_fee_cents: number
     total_cents: number
+    pricing_plan_code: string | null
+    pricing_plan_name: string | null
+    commission_bps: number | null
+    commission_cents: number | null
+    photographer_share_cents: number | null
+    platform_share_cents: number | null
   }[]
   pagination: {
     page: number
@@ -52,11 +73,13 @@ type Finance = {
   }
 }
 
-const money = (cents: number) =>
-  `RM ${(cents / 100).toFixed(2)}`
+function shareMoney(cents: number | null, currency = "MYR") {
+  return cents === null ? "—" : money(cents, currency)
+}
 
 export default function AdminFinanceDashboard() {
   const [page, setPage] = useState(1)
+  const [refreshKey, setRefreshKey] = useState(0)
   const [data, setData] = useState<Finance | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -91,50 +114,35 @@ export default function AdminFinanceDashboard() {
     return () => {
       active = false
     }
-  }, [page])
+  }, [page, refreshKey])
 
   return (
-    <div className="min-h-screen bg-[#F5F8F9] text-[#173943]">
-      <header className="border-b border-[#E0E9EB] bg-white">
-        <div className="flex h-20 items-center gap-4 px-4 sm:px-6 lg:px-10">
-          <Link
-            href="/admin"
-            aria-label="Back to platform dashboard"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#DCE7EA] text-[#557781] transition hover:bg-[#F4FAFA] hover:text-[#087F8C]"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-
-          <div>
-            <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.17em] text-[#0798A6]">
-              <ShieldCheck className="h-4 w-4" />
-              Platform Admin
-            </p>
-            <p className="mt-1 text-base font-semibold text-[#173943]">
-              Finance
-            </p>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-10">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#0798A6]">
-              EZFOTOO · Platform Admin
-            </p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-tight">
-              Event Sales finance
-            </h1>
-            <p className="mt-2 text-sm text-[#6A7E86]">
-              Verified payment records across all workspaces.
-            </p>
-          </div>
-          <span className="rounded-full border border-[#D5E9EC] bg-white px-4 py-2 text-xs font-semibold text-[#55747E]">
-            Currency: MYR
-          </span>
-        </div>
-
+    <DashboardPage
+      title="Finance"
+      section="Platform Admin"
+      icon={<ShieldCheck className="h-4 w-4" />}
+      backHref="/admin"
+      backLabel="Back to platform dashboard"
+      eyebrow="Platform commerce"
+      heading="Event Sales finance"
+      description="Verified payment records across all workspaces."
+      actions={
+        <button
+          type="button"
+          onClick={() => setRefreshKey((value) => value + 1)}
+          disabled={loading}
+          className={dashboardButtonClass}
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+      }
+      summary={
+        <span className="rounded-full border border-[#D5E9EC] bg-white px-4 py-2 text-xs font-semibold text-[#55747E]">
+          Currency: {data?.currency ?? "MYR"}
+        </span>
+      }
+    >
         {error && (
           <p
             role="alert"
@@ -153,37 +161,39 @@ export default function AdminFinanceDashboard() {
 
         {data && !loading && !error && (
           <>
-            <div className="mt-9 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[
                 [
                   "Recorded payments",
                   String(data.summary.recorded_payments),
                 ],
                 ["Photo sales", money(data.summary.photo_sales_cents)],
+                ["Commission", shareMoney(data.summary.commission_cents)],
                 ["Service fees", money(data.summary.service_fees_cents)],
+                ["Platform share", shareMoney(data.summary.platform_share_cents)],
+                ["Photographer share", shareMoney(data.summary.photographer_share_cents)],
                 [
                   "Total collected",
                   money(data.summary.total_collected_cents),
                 ],
               ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-2xl border border-[#DFE9EC] bg-white p-5 shadow-sm"
-                >
-                  <CircleDollarSign className="mb-5 h-5 w-5 text-[#0BA5B4]" />
-                  <p className="text-sm text-[#607B84]">{label}</p>
-                  <p className="mt-2 text-2xl font-semibold text-[#073B4C]">
-                    {value}
-                  </p>
-                </div>
+                <DashboardMetric key={label} label={label} value={value} />
               ))}
             </div>
 
             <p className="mt-4 text-xs leading-5 text-[#667F87]">
-              Gross recorded payments. Service fees are shown separately.
-              Refunds, commission, payment costs and payouts are not
-              deducted.
+              Platform share includes saved commission and service fees.
+              These are recorded allocations; refunds, payment costs and payouts
+              are not deducted.
             </p>
+
+          {data.summary.commission_missing_payments > 0 && (
+            <p className="mt-4 text-xs leading-5 text-[#6C838B]">
+              Commission and share totals cover {data.summary.commission_recorded_payments} payments.
+              {" "}{data.summary.commission_missing_payments} older payments have no saved commission breakdown.
+              Their photo sales and collected amounts remain included.
+            </p>
+          )}
 
             {data.coverage.paid_orders_missing > 0 && (
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
@@ -192,7 +202,7 @@ export default function AdminFinanceDashboard() {
               </div>
             )}
 
-            <section className="mt-8 overflow-hidden rounded-2xl border border-[#DFE9EC] bg-white shadow-sm">
+            <section className={`${dashboardCardClass} mt-8 overflow-hidden`}>
               <div className="border-b border-[#E7EEF0] p-6">
                 <h2 className="text-xl font-semibold">Workspaces</h2>
                 <p className="mt-1 text-xs text-[#6A7E86]">
@@ -206,13 +216,16 @@ export default function AdminFinanceDashboard() {
                 </p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[700px] text-left text-sm">
+                  <table className="w-full min-w-[1100px] text-left text-sm">
                     <thead className="bg-[#F6F9FA] text-xs uppercase tracking-wide text-[#718991]">
                       <tr>
                         <th className="px-6 py-3">Workspace</th>
                         <th className="px-6 py-3">Payments</th>
                         <th className="px-6 py-3">Photo sales</th>
                         <th className="px-6 py-3">Service fees</th>
+                        <th className="px-6 py-3">Commission</th>
+                        <th className="px-6 py-3">Photographer share</th>
+                        <th className="px-6 py-3">Platform share</th>
                         <th className="px-6 py-3">Collected</th>
                       </tr>
                     </thead>
@@ -234,6 +247,15 @@ export default function AdminFinanceDashboard() {
                           <td className="px-6 py-4">
                             {money(item.service_fees_cents)}
                           </td>
+                          <td className="whitespace-nowrap px-6 py-4">
+                            {shareMoney(item.commission_cents)}
+                          </td>
+                          <td className="whitespace-nowrap px-6 py-4">
+                            {shareMoney(item.photographer_share_cents)}
+                          </td>
+                          <td className="whitespace-nowrap px-6 py-4 font-semibold">
+                            {shareMoney(item.platform_share_cents)}
+                          </td>
                           <td className="px-6 py-4 font-semibold">
                             {money(item.total_collected_cents)}
                           </td>
@@ -245,7 +267,7 @@ export default function AdminFinanceDashboard() {
               )}
             </section>
 
-            <section className="mt-7 overflow-hidden rounded-2xl border border-[#DFE9EC] bg-white shadow-sm">
+            <section className={`${dashboardCardClass} mt-7 overflow-hidden`}>
               <div className="border-b border-[#E7EEF0] p-6">
                 <h2 className="text-xl font-semibold">Payment records</h2>
                 <p className="mt-1 text-xs text-[#6A7E86]">
@@ -259,13 +281,16 @@ export default function AdminFinanceDashboard() {
                 </p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[780px] text-left text-sm">
+                  <table className="w-full min-w-[1200px] text-left text-sm">
                     <thead className="bg-[#F6F9FA] text-xs uppercase tracking-wide text-[#718991]">
                       <tr>
                         <th className="px-6 py-3">Order / workspace</th>
                         <th className="px-6 py-3">Paid</th>
                         <th className="px-6 py-3">Photo sales</th>
                         <th className="px-6 py-3">Service fee</th>
+                        <th className="px-6 py-3">Commission</th>
+                        <th className="px-6 py-3">Photographer share</th>
+                        <th className="px-6 py-3">Platform share</th>
                         <th className="px-6 py-3">Collected</th>
                       </tr>
                     </thead>
@@ -284,6 +309,7 @@ export default function AdminFinanceDashboard() {
                               {
                                 dateStyle: "medium",
                                 timeStyle: "short",
+                                timeZone: "Asia/Kuala_Lumpur",
                               }
                             )}
                           </td>
@@ -292,6 +318,16 @@ export default function AdminFinanceDashboard() {
                           </td>
                           <td className="px-6 py-4">
                             {money(item.service_fee_cents)}
+                          </td>
+                          <td className="whitespace-nowrap px-6 py-4">
+                            {shareMoney(item.commission_cents)}
+                            {item.commission_bps !== null && <span className="block text-xs text-[#718991]">{item.commission_bps / 100}%</span>}
+                          </td>
+                          <td className="whitespace-nowrap px-6 py-4">
+                            {shareMoney(item.photographer_share_cents)}
+                          </td>
+                          <td className="whitespace-nowrap px-6 py-4 font-semibold">
+                            {shareMoney(item.platform_share_cents)}
                           </td>
                           <td className="px-6 py-4 font-semibold">
                             {money(item.total_cents)}
@@ -304,12 +340,12 @@ export default function AdminFinanceDashboard() {
               )}
 
               {data.pagination.total_pages > 1 && (
-                <div className="flex items-center justify-between border-t border-[#E7EEF0] px-6 py-4 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E7EEF0] px-6 py-4 text-sm">
                   <button
                     type="button"
                     disabled={page <= 1 || loading}
                     onClick={() => setPage(page - 1)}
-                    className="inline-flex items-center gap-1 font-semibold text-[#087F8C] disabled:opacity-40"
+                    className={dashboardButtonClass}
                   >
                     <ChevronLeft className="h-4 w-4" />
                     Previous
@@ -323,7 +359,7 @@ export default function AdminFinanceDashboard() {
                       page >= data.pagination.total_pages || loading
                     }
                     onClick={() => setPage(page + 1)}
-                    className="inline-flex items-center gap-1 font-semibold text-[#087F8C] disabled:opacity-40"
+                    className={dashboardButtonClass}
                   >
                     Next
                     <ChevronRight className="h-4 w-4" />
@@ -333,7 +369,6 @@ export default function AdminFinanceDashboard() {
             </section>
           </>
         )}
-      </main>
-    </div>
+    </DashboardPage>
   )
 }

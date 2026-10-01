@@ -94,6 +94,8 @@ def generate_private_upload_url(
     object_key: str,
     content_type: str,
     expires_seconds: int = 900,
+    *,
+    file_size: int | None = None,
 ) -> str:
     """
     Create a presigned PUT URL.
@@ -106,6 +108,18 @@ def generate_private_upload_url(
         object_key
     )
 
+    params: dict[str, Any] = {
+        "Bucket": settings.r2_private_bucket_name,
+        "Key": key,
+        "ContentType": content_type,
+    }
+    if file_size is not None:
+        if file_size <= 0:
+            raise PrivateStorageError("Upload size must be positive.")
+        # Bind the signature to the reserved byte length. The browser sends
+        # Content-Length automatically when uploading the original File/Blob.
+        params["ContentLength"] = file_size
+
     try:
         client = (
             _private_r2_client()
@@ -114,14 +128,7 @@ def generate_private_upload_url(
         return (
             client.generate_presigned_url(
                 ClientMethod="put_object",
-                Params={
-                    "Bucket":
-                        settings.r2_private_bucket_name,
-                    "Key":
-                        key,
-                    "ContentType":
-                        content_type,
-                },
+                Params=params,
                 ExpiresIn=
                     expires_seconds,
             )

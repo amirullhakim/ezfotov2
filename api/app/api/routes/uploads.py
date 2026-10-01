@@ -21,7 +21,7 @@ from app.services.r2_storage import (
     delete_r2_object,
     get_object_metadata,
 )
-from app.services.service_access import require_workspace_service
+from app.services.website_access import require_website_draft_access
 from app.services.workspace_access import get_user_workspace
 
 
@@ -89,11 +89,7 @@ def create_upload_url(
         db,
     )
 
-    require_workspace_service(
-        workspace.id,
-        "WEBSITE",
-        db,
-    )
+    require_website_draft_access(workspace, db)
 
     if payload.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
@@ -153,11 +149,7 @@ def complete_upload(
         db,
     )
 
-    require_workspace_service(
-        workspace.id,
-        "WEBSITE",
-        db,
-    )
+    require_website_draft_access(workspace, db)
 
     if payload.purpose not in ALLOWED_PURPOSES:
         raise HTTPException(

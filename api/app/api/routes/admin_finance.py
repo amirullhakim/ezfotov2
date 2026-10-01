@@ -33,6 +33,16 @@ def get_admin_finance(
         ).where(ledger.currency == "MYR")
     ).one()
 
+    # Commission totals come only from the immutable payment ledger.
+    commission_count, commission_cents, photographer_cents, platform_cents = db.execute(
+        select(
+            func.count(ledger.pricing_subscription_id),
+            func.coalesce(func.sum(ledger.commission_cents), 0),
+            func.coalesce(func.sum(ledger.photographer_share_cents), 0),
+            func.coalesce(func.sum(ledger.platform_share_cents), 0),
+        ).where(ledger.currency == "MYR")
+    ).one()
+
     paid_orders = db.scalar(
         select(func.count(EventOrder.id)).where(
             EventOrder.status == "PAID",
@@ -59,6 +69,10 @@ def get_admin_finance(
             func.coalesce(func.sum(ledger.photo_subtotal_cents), 0),
             func.coalesce(func.sum(ledger.service_fee_cents), 0),
             func.coalesce(func.sum(ledger.total_cents), 0),
+            func.count(ledger.pricing_subscription_id),
+            func.coalesce(func.sum(ledger.commission_cents), 0),
+            func.coalesce(func.sum(ledger.photographer_share_cents), 0),
+            func.coalesce(func.sum(ledger.platform_share_cents), 0),
         )
         .join(ledger, ledger.workspace_id == Workspace.id)
         .where(ledger.currency == "MYR")
@@ -82,6 +96,12 @@ def get_admin_finance(
             "photo_sales_cents": int(photo_sales),
             "service_fees_cents": int(service_fees),
             "total_collected_cents": int(total_collected),
+            "commission_recorded_payments": int(commission_count),
+            "commission_missing_payments": int(count) - int(commission_count),
+            "commission_cents": int(commission_cents) if commission_count else None,
+            "photographer_share_cents": int(photographer_cents) if commission_count else None,
+            "platform_share_cents": int(platform_cents) if commission_count else None,
+
         },
         "coverage": {
             "paid_orders": int(paid_orders),
@@ -99,8 +119,15 @@ def get_admin_finance(
                 "photo_sales_cents": int(photos),
                 "service_fees_cents": int(fees),
                 "total_collected_cents": int(collected),
+                "commission_recorded_payments": int(commission_count),
+                "commission_missing_payments": int(payments) - int(commission_count),
+                "commission_cents": int(commission_cents) if commission_count else None,
+                "photographer_share_cents": int(photographer_cents) if commission_count else None,
+                "platform_share_cents": int(platform_cents) if commission_count else None,
+
             }
-            for workspace_id, name, slug, payments, photos, fees, collected
+            for (workspace_id, name, slug, payments, photos, fees, collected,
+                 commission_count, commission_cents, photographer_cents, platform_cents)
             in by_workspace
         ],
         "transactions": [
@@ -112,6 +139,13 @@ def get_admin_finance(
                 "photo_sales_cents": entry.photo_subtotal_cents,
                 "service_fee_cents": entry.service_fee_cents,
                 "total_cents": entry.total_cents,
+                "pricing_plan_code": entry.pricing_plan_code,
+                "pricing_plan_name": entry.pricing_plan_name,
+                "commission_bps": entry.commission_bps,
+                "commission_cents": entry.commission_cents,
+                "photographer_share_cents": entry.photographer_share_cents,
+                "platform_share_cents": entry.platform_share_cents,
+
             }
             for entry, workspace_name in transactions
         ],

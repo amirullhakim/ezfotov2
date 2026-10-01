@@ -1,3 +1,9 @@
+from app.services.workspace_storage import (
+    complete_upload_reservation,
+    lock_storage_workspace,
+    require_upload_reservation,
+    reserve_photo_uploads,
+)
 import re
 import uuid
 
@@ -55,8 +61,9 @@ from app.services.private_storage import (
     get_private_object_metadata,
 )
 
-from app.services.service_access import (
-    require_workspace_service,
+from app.services.subscription_access import (
+    require_paid_workspace_service,
+    require_workspace_service_management,
 )
 
 from app.services.workspace_access import (
@@ -103,6 +110,8 @@ ALLOWED_CONTENT_TYPES = {
 def get_event_sales_workspace(
     current_user: dict,
     db: Session,
+    *,
+    require_paid: bool = False,
 ):
     workspace, membership = (
         get_user_workspace(
@@ -111,11 +120,10 @@ def get_event_sales_workspace(
         )
     )
 
-    require_workspace_service(
-        workspace.id,
-        "EVENT_SALES",
-        db,
-    )
+    if require_paid:
+        require_paid_workspace_service(workspace.id, "EVENT_SALES", db)
+    else:
+        require_workspace_service_management(workspace.id, "EVENT_SALES", db)
 
     return (
         workspace,
@@ -438,8 +446,12 @@ def create_event_upload_urls(
         get_event_sales_workspace(
             current_user,
             db,
+            require_paid=True,
         )
     )
+
+    lock_storage_workspace(workspace.id, db)
+    require_paid_workspace_service(workspace.id, "EVENT_SALES", db)
 
     event = (
         get_workspace_event(
@@ -469,10 +481,24 @@ def create_event_upload_urls(
         )
 
 
+    # Validate and reserve the whole batch before generating any URLs.
+    prepared = []
+    for item in payload.files:
+        validate_upload(content_type=item.content_type, file_size=item.file_size)
+        prepared.append({
+            "object_key": build_event_photo_key(
+                workspace_id=workspace.id, event_id=event.id,
+                filename=item.filename, content_type=item.content_type,
+            ),
+            "content_type": item.content_type,
+            "file_size": item.file_size,
+        })
+    reserve_photo_uploads(workspace.id, "EVENT_SALES", event.id, prepared, db)
+
     uploads = []
 
 
-    for item in payload.files:
+    for item, reserved in zip(payload.files, prepared):
         validate_upload(
             content_type=
                 item.content_type,
@@ -480,18 +506,7 @@ def create_event_upload_urls(
                 item.file_size,
         )
 
-        object_key = (
-            build_event_photo_key(
-                workspace_id=
-                    workspace.id,
-                event_id=
-                    event.id,
-                filename=
-                    item.filename,
-                content_type=
-                    item.content_type,
-            )
-        )
+        object_key = reserved["object_key"]
 
         try:
             upload_url = (
@@ -502,6 +517,7 @@ def create_event_upload_urls(
                         item.content_type,
                     expires_seconds=
                         UPLOAD_URL_EXPIRES_SECONDS,
+                    file_size=item.file_size,
                 )
             )
 
@@ -544,6 +560,8 @@ def create_event_upload_urls(
         )
 
 
+    db.commit()
+
     return {
         "event_id":
             str(event.id),
@@ -581,8 +599,12 @@ def complete_event_uploads(
         get_event_sales_workspace(
             current_user,
             db,
+            require_paid=True,
         )
     )
+
+    lock_storage_workspace(workspace.id, db)
+    require_paid_workspace_service(workspace.id, "EVENT_SALES", db)
 
     event = (
         get_workspace_event(
@@ -728,6 +750,10 @@ def complete_event_uploads(
 
             continue
 
+
+        reservation = require_upload_reservation(
+            workspace.id, "EVENT_SALES", event.id, item.object_key, db,
+        )
 
         # --------------------------------------------------
         # REQUEST TYPE VALIDATION
@@ -903,6 +929,8 @@ def complete_event_uploads(
         db.add(
             photo
         )
+
+        complete_upload_reservation(reservation, actual_size, actual_content_type, db)
 
         completed_photos.append(
             photo

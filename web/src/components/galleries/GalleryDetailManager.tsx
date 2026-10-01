@@ -55,6 +55,8 @@ type Gallery = {
   slug: string
 
   client_name: string | null
+  price_rm: string | null
+  show_on_website: boolean
   description: string | null
 
   shoot_date: string | null
@@ -323,6 +325,9 @@ export default function GalleryDetailManager({
     setDescription,
   ] = useState("")
 
+  const [galleryPrice, setGalleryPrice] = useState("")
+  const [showOnWebsite, setShowOnWebsite] = useState(false)
+
   const [
     shootDate,
     setShootDate,
@@ -419,6 +424,9 @@ export default function GalleryDetailManager({
           galleryResult.description ??
           ""
         )
+
+        setGalleryPrice(galleryResult.price_rm ?? "")
+        setShowOnWebsite(galleryResult.show_on_website)
 
         setShootDate(
           galleryResult.shoot_date ??
@@ -754,6 +762,8 @@ export default function GalleryDetailManager({
       const payload: {
         title: string
         client_name: string | null
+        price_rm: string | null
+        show_on_website: boolean
         description: string | null
         shoot_date: string | null
         allow_downloads: boolean
@@ -774,6 +784,9 @@ export default function GalleryDetailManager({
           description.trim()
             ? description.trim()
             : null,
+
+        price_rm: galleryPrice.trim() || null,
+        show_on_website: privacyMode !== "PRIVATE" && showOnWebsite,
 
         shoot_date:
           shootDate ||
@@ -822,6 +835,9 @@ export default function GalleryDetailManager({
       setGallery(
         updated
       )
+
+      setGalleryPrice(updated.price_rm ?? "")
+      setShowOnWebsite(updated.show_on_website)
 
       setPrivacyMode(
         updated.privacy_mode
@@ -2102,6 +2118,28 @@ export default function GalleryDetailManager({
 
               )}
 
+
+              {/* WEBSITE LISTING */}
+              <div className="mt-6 border-t border-[#E9EFF0] pt-5">
+                <h3 className="text-sm font-semibold text-[#36545D]">Website listing</h3>
+                <p className="mt-2 text-xs leading-5 text-[#82969D]">
+                  List this gallery on your published website. Its title, description and price become public.
+                  Password galleries still require a password to view photos.
+                </p>
+                <label className="mt-4 flex items-center gap-3 text-sm font-semibold text-[#36545D]">
+                  <input type="checkbox" checked={privacyMode !== "PRIVATE" && showOnWebsite}
+                    disabled={privacyMode === "PRIVATE" || saving}
+                    onChange={event => setShowOnWebsite(event.target.checked)} />
+                  Show on website
+                </label>
+                {privacyMode === "PRIVATE" && <p className="mt-2 text-xs text-[#82969D]">Private galleries are shared personally and cannot appear on your website.</p>}
+                {!gallery.is_published && <p className="mt-2 text-xs text-[#82969D]">Publish the gallery before it can appear on your website.</p>}
+                <label htmlFor="gallery-price" className="mb-2 mt-5 block text-sm font-semibold text-[#36545D]">Full-gallery price (RM)</label>
+                <input id="gallery-price" type="number" min="0" max="99999999.99" step="0.01"
+                  value={galleryPrice} disabled={saving} onChange={event => setGalleryPrice(event.target.value)}
+                  placeholder="Optional" className="h-11 w-full rounded-xl border border-[#DCE6E8] bg-white px-4 text-sm text-[#203F48] outline-none focus:border-[#2CC3D0] focus:ring-4 focus:ring-[#1CC9D8]/10" />
+                <p className="mt-2 text-xs leading-5 text-[#82969D]">Customers enquire through WhatsApp. Leave blank for pricing on enquiry.</p>
+              </div>
 
               {/* EXPIRY */}
               <div className="mt-6 border-t border-[#E9EFF0] pt-5">

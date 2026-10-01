@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response, status
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -12,8 +12,8 @@ router = APIRouter(
 
 
 @router.get("")
-def health_check():
-    database_status = "disconnected"
+def health_check(response: Response):
+    response.headers["Cache-Control"] = "no-store"
 
     try:
         with engine.connect() as connection:
@@ -23,6 +23,9 @@ def health_check():
 
     except Exception:
         database_status = "error"
+        response.status_code = (
+            status.HTTP_503_SERVICE_UNAVAILABLE
+        )
 
     return {
         "ok": database_status == "connected",

@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
+    SmallInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -19,6 +21,7 @@ class EventOrder(TimestampMixin, Base):
     __tablename__ = "event_orders"
 
     __table_args__ = (
+        CheckConstraint('(pricing_subscription_id IS NULL AND pricing_plan_code IS NULL AND pricing_plan_name IS NULL AND commission_bps IS NULL AND commission_cents IS NULL AND photographer_share_cents IS NULL AND platform_share_cents IS NULL) OR (pricing_subscription_id IS NOT NULL AND pricing_plan_code IS NOT NULL AND pricing_plan_name IS NOT NULL AND commission_bps IS NOT NULL AND commission_cents IS NOT NULL AND photographer_share_cents IS NOT NULL AND platform_share_cents IS NOT NULL AND length(trim(pricing_plan_code)) > 0 AND length(trim(pricing_plan_name)) > 0 AND commission_bps BETWEEN 0 AND 10000 AND commission_cents >= 0 AND photographer_share_cents >= 0 AND platform_share_cents >= 0 AND commission_cents = floor((photo_subtotal_cents::numeric * commission_bps + 5000) / 10000) AND photographer_share_cents = photo_subtotal_cents - commission_cents AND platform_share_cents = commission_cents + service_fee_cents AND photographer_share_cents + platform_share_cents = total_cents)', name="ck_eo_commission_snapshot"),
         CheckConstraint(
             (
                 "status IN ("
@@ -228,3 +231,17 @@ class EventOrder(TimestampMixin, Base):
         nullable=False,
         default=0,
     )
+
+    pricing_subscription_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("workspace_subscriptions.id", ondelete="RESTRICT", name="fk_eo_pricing_subscription"), nullable=True)
+
+    pricing_plan_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+    pricing_plan_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    commission_bps: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+
+    commission_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    photographer_share_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    platform_share_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
