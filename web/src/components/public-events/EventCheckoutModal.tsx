@@ -461,6 +461,7 @@ export default function EventCheckoutModal({
                   createdOrder
                     .access
                     .token,
+                return_origin: window.location.origin,
               }),
           }
         )

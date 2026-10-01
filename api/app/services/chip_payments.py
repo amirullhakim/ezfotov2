@@ -207,9 +207,31 @@ def _request_chip(
     return payload
 
 
+def build_event_payment_redirects(
+    *,
+    order_number: str,
+    return_origin: str | None = None,
+) -> dict[str, str]:
+    # Only the payment route supplies an origin, after workspace validation.
+    frontend_url = (return_origin or settings.frontend_url).rstrip("/")
+    encoded_order = quote(order_number, safe="")
+    return {
+        name: (
+            f"{frontend_url}/payment/chip/return"
+            f"?result={result}&order={encoded_order}"
+        )
+        for name, result in (
+            ("success_redirect", "success"),
+            ("failure_redirect", "failure"),
+            ("cancel_redirect", "cancelled"),
+        )
+    }
+
+
 def create_chip_fpx_purchase(
     *,
     order: EventOrder,
+    return_origin: str | None = None,
 ) -> dict[str, Any]:
     (
         _base_url,
@@ -218,42 +240,10 @@ def create_chip_fpx_purchase(
     ) = _get_chip_config()
 
 
-    frontend_url = (
-        settings
-        .frontend_url
-        .rstrip("/")
+    redirects = build_event_payment_redirects(
+        order_number=order.order_number,
+        return_origin=return_origin,
     )
-
-
-    encoded_order = quote(
-        order.order_number,
-        safe="",
-    )
-
-
-    success_redirect = (
-        f"{frontend_url}"
-        "/payment/chip/return"
-        "?result=success"
-        f"&order={encoded_order}"
-    )
-
-
-    failure_redirect = (
-        f"{frontend_url}"
-        "/payment/chip/return"
-        "?result=failure"
-        f"&order={encoded_order}"
-    )
-
-
-    cancel_redirect = (
-        f"{frontend_url}"
-        "/payment/chip/return"
-        "?result=cancelled"
-        f"&order={encoded_order}"
-    )
-
 
     payload: dict[
         str,
@@ -294,7 +284,7 @@ def create_chip_fpx_purchase(
                 f"{order.item_count} event "
                 f"photo"
                 f"{'' if order.item_count == 1 else 's'}"
-                f" — {order.order_number}"
+                f" â€” {order.order_number}"
             ),
         },
 
@@ -309,13 +299,13 @@ def create_chip_fpx_purchase(
             False,
 
         "success_redirect":
-            success_redirect,
+            redirects["success_redirect"],
 
         "failure_redirect":
-            failure_redirect,
+            redirects["failure_redirect"],
 
         "cancel_redirect":
-            cancel_redirect,
+            redirects["cancel_redirect"],
     }
 
 

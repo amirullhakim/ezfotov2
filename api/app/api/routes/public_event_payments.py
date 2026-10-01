@@ -9,6 +9,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Request,
     status,
 )
 
@@ -16,6 +17,10 @@ from pydantic import (
     BaseModel,
     Field,
 )
+
+from urllib.parse import urlsplit
+
+from app.core.config import settings
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,6 +32,7 @@ from app.api.routes.public_event_sales import (
 from app.db.session import get_db
 
 from app.models import (
+    Domain,
     EventGallery,
     EventOrder,
 )
@@ -35,6 +41,7 @@ from app.services.chip_payments import (
     ChipPaymentError,
     ChipPurchaseNotFound,
     create_chip_fpx_purchase,
+    build_event_payment_redirects,
     get_chip_purchase,
 )
 
@@ -56,6 +63,65 @@ class StartEventPaymentRequest(
         min_length=32,
         max_length=200,
     )
+    return_origin: str | None = Field(default=None, min_length=1, max_length=2048)
+
+
+
+def _normalize_return_origin(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        if (
+            not value or value != value.strip()
+            or any(ord(char) <= 32 or ord(char) == 127 for char in value)
+            or "\\" in value
+            or parsed.scheme not in {"http", "https"}
+            or not parsed.hostname or parsed.username is not None
+            or parsed.password is not None or parsed.path not in {"", "/"}
+            or parsed.query or parsed.fragment
+        ):
+            raise ValueError("Invalid origin")
+        port = parsed.port
+        host = parsed.hostname.lower()
+        if ":" in host:
+            host = f"[{host}]"
+        if port is not None and port != (443 if parsed.scheme == "https" else 80):
+            host += f":{port}"
+        return f"{parsed.scheme}://{host}"
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid payment return address.") from exc
+
+
+def _resolve_payment_return_origin(*, payload, request, workspace, db) -> str:
+    browser_origin = request.headers.get("origin")
+    candidate = _normalize_return_origin(
+        payload.return_origin or browser_origin or settings.frontend_url
+    )
+    if browser_origin and candidate != _normalize_return_origin(browser_origin):
+        raise HTTPException(status_code=422, detail="Payment return address must match this browser's origin.")
+
+    frontend = _normalize_return_origin(settings.frontend_url)
+    if candidate == frontend:
+        return candidate
+
+    root_domain = settings.vercel_root_domain.strip().lower().rstrip(".")
+    tenant = f"https://{workspace.slug}.{root_domain}"
+    if candidate == tenant:
+        return candidate
+
+    parsed = urlsplit(candidate)
+    # Custom addresses must be verified and belong to this exact workspace.
+    if parsed.scheme == "https" and parsed.port is None:
+        domain = db.scalar(
+            select(Domain).where(
+                Domain.workspace_id == workspace.id,
+                Domain.hostname == parsed.hostname,
+                Domain.is_verified.is_(True),
+            )
+        )
+        if domain is not None:
+            return candidate
+
+    raise HTTPException(status_code=422, detail="This payment return address is not configured for this workspace.")
 
 
 def _payment_response(
@@ -118,6 +184,7 @@ def start_event_fpx_payment(
     event_slug: str,
     order_number: str,
     payload: StartEventPaymentRequest,
+    request: Request,
 
     db: Session = Depends(
         get_db
@@ -225,6 +292,13 @@ def start_event_fpx_payment(
                 "Order not found.",
         )
 
+
+    return_origin = _resolve_payment_return_origin(
+        payload=payload, request=request, workspace=workspace, db=db,
+    )
+    expected_redirects = build_event_payment_redirects(
+        order_number=order.order_number, return_origin=return_origin,
+    )
 
     # --------------------------------------------------
     # STATUS
@@ -352,6 +426,19 @@ def start_event_fpx_payment(
                 )
             )
 
+            if checkout_url and any(
+                existing_purchase.get(key) != value
+                for key, value in expected_redirects.items()
+            ):
+                db.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "This payment was started from another website address. "
+                        "Check the existing order's payment status before starting a new order."
+                    ),
+                )
+
             if checkout_url:
                 db.commit()
 
@@ -392,6 +479,7 @@ def start_event_fpx_payment(
             create_chip_fpx_purchase(
                 order=
                     order,
+                return_origin=return_origin,
             )
         )
 

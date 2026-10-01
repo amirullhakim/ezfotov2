@@ -1,29 +1,26 @@
 "use client"
 
-/* Signed private R2 images must bypass Next.js image optimization. */
-/* eslint-disable @next/next/no-img-element */
-
-import Link from "next/link"
-
 import {
+  ArrowUpRight,
   CheckCircle2,
   Clock3,
-  Download,
-  FileImage,
   Landmark,
   Loader2,
-  RefreshCw,
+  Mail,
+  ReceiptText,
   ShieldCheck,
+  UserRound,
   X,
-  XCircle,
 } from "lucide-react"
 
 import {
-  useCallback,
-  useEffect,
-  useRef,
   useState,
 } from "react"
+
+import type {
+  CartPhoto,
+  EventQuoteResponse,
+} from "@/components/public-events/EventCartDrawer"
 
 
 const API_URL = (
@@ -45,80 +42,6 @@ const ORDER_RETURN_PATH_STORAGE_PREFIX =
 
 const ORDER_PAYMENT_PATH_STORAGE_PREFIX =
   "ezfotoo:event-order-payment-path:"
-
-
-const MAX_STATUS_ATTEMPTS = 12
-const STATUS_RETRY_DELAY_MS = 1500
-
-
-type OrderStatusResponse = {
-  order: {
-    order_number: string
-    status: string
-    currency: string
-    item_count: number
-    total_cents: number
-    total_rm: number
-    paid_at: string | null
-    expires_at: string | null
-  }
-}
-
-
-type StartPaymentResponse = {
-  order: {
-    order_number: string
-    status: string
-    currency: string
-    total_cents: number
-    total_rm: number
-  }
-
-  payment: {
-    provider: string
-    purchase_id: string
-    checkout_url: string
-    reused: boolean
-    mode: string
-  }
-}
-
-
-type OrderDownloadsResponse = {
-  order: {
-    order_number: string
-    status: string
-    currency: string
-    item_count: number
-    total_cents: number
-    total_rm: number
-  }
-
-  downloads: {
-    expires_in_seconds: number
-    expires_at: string
-    items: Array<{
-      photo_id: string
-      filename: string
-      content_type: string
-      size_bytes: number
-      download_url: string
-      view_url?: string | null
-    }>
-  }
-}
-
-
-type VerificationState =
-  | "loading"
-  | "paid"
-  | "pending"
-  | "failed"
-  | "cancelled"
-  | "expired"
-  | "refunded"
-  | "unavailable"
-  | "error"
 
 
 function orderAccessStorageKey(
@@ -148,86 +71,109 @@ function orderPaymentPathStorageKey(
 }
 
 
-function stateFromOrderStatus(
-  status: string
-): VerificationState {
-  switch (
-    status
-      .trim()
-      .toUpperCase()
-  ) {
-    case "PAID":
-      return "paid"
+type CreateOrderResponse = {
+  order: {
+    id: string
 
-    case "PAYMENT_FAILED":
-      return "failed"
+    order_number: string
+    status: string
 
-    case "CANCELLED":
-      return "cancelled"
+    customer_name: string
+    customer_email: string
 
-    case "EXPIRED":
-      return "expired"
+    currency: string
+    item_count: number
 
-    case "REFUNDED":
-      return "refunded"
+    created_at: string
+    expires_at: string | null
+  }
 
-    default:
-      return "pending"
+  access: {
+    token: string
+  }
+
+  pricing: {
+    regular_subtotal_cents: number
+    regular_subtotal_rm: number
+
+    discount_cents: number
+    discount_rm: number
+
+    total_cents: number
+    total_rm: number
+  }
+
+  payment: {
+    required: boolean
+    ready: boolean
+    provider: string
+    message: string
   }
 }
 
 
-function formatBytes(
-  value: number
-) {
-  if (value < 1024) {
-    return `${value} B`
+type StartPaymentResponse = {
+  order: {
+    order_number: string
+    status: string
+    currency: string
+
+    total_cents: number
+    total_rm: number
   }
 
-  const kilobytes =
-    value / 1024
+  payment: {
+    provider: string
+    purchase_id: string
+    checkout_url: string
 
-  if (kilobytes < 1024) {
-    return `${kilobytes.toFixed(1)} KB`
+    reused: boolean
+    mode: string
   }
-
-  const megabytes =
-    kilobytes / 1024
-
-  return `${megabytes.toFixed(1)} MB`
 }
 
 
-export default function ChipReturnPage() {
-  const closeViewerButtonRef = useRef<HTMLButtonElement | null>(null)
-  const previousFocusRef = useRef<HTMLElement | null>(null)
+export default function EventCheckoutModal({
+  open,
+  workspaceSlug,
+  eventSlug,
+  selectedPhotos,
+  quote,
+  onClose,
+  onOrderCreated,
+}: {
+  open: boolean
 
+  workspaceSlug: string
+  eventSlug: string
+
+  selectedPhotos: CartPhoto[]
+
+  quote: EventQuoteResponse | null
+
+  onClose: () => void
+
+  onOrderCreated: () => void
+}) {
   const [
-    orderNumber,
-    setOrderNumber,
+    customerName,
+    setCustomerName,
   ] = useState(
     ""
   )
 
   const [
-    returnPath,
-    setReturnPath,
-  ] = useState(
-    "/"
-  )
-
-  const [
-    returnResult,
-    setReturnResult,
+    customerEmail,
+    setCustomerEmail,
   ] = useState(
     ""
   )
 
   const [
-    paymentPath,
-    setPaymentPath,
+    submitting,
+    setSubmitting,
   ] = useState(
-    ""
+    false
   )
 
   const [
@@ -238,28 +184,6 @@ export default function ChipReturnPage() {
   )
 
   const [
-    paymentStartError,
-    setPaymentStartError,
-  ] = useState(
-    ""
-  )
-
-
-  const [
-    verificationState,
-    setVerificationState,
-  ] = useState<VerificationState>(
-    "loading"
-  )
-
-  const [
-    order,
-    setOrder,
-  ] = useState<OrderStatusResponse["order"] | null>(
-    null
-  )
-
-  const [
     errorMessage,
     setErrorMessage,
   ] = useState(
@@ -267,393 +191,236 @@ export default function ChipReturnPage() {
   )
 
   const [
-    retryNonce,
-    setRetryNonce,
-  ] = useState(
-    0
-  )
-
-
-  const [
-    accessToken,
-    setAccessToken,
-  ] = useState(
-    ""
-  )
-
-  const [
-    downloads,
-    setDownloads,
-  ] = useState<OrderDownloadsResponse["downloads"] | null>(
+    createdOrder,
+    setCreatedOrder,
+  ] = useState<CreateOrderResponse | null>(
     null
   )
 
-  const [
-    downloadsLoading,
-    setDownloadsLoading,
-  ] = useState(
-    false
-  )
 
-  const [
-    downloadsError,
-    setDownloadsError,
-  ] = useState(
-    ""
-  )
-
-  const [
-    downloadRefreshNonce,
-    setDownloadRefreshNonce,
-  ] = useState(
-    0
-  )
-
-  const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!selectedPhotoId) return
-
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = "hidden"
-    closeViewerButtonRef.current?.focus()
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setSelectedPhotoId(null)
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener("keydown", handleKeyDown)
-      previousFocusRef.current?.focus()
-    }
-  }, [selectedPhotoId])
-
-
-  const fetchOrderStatus =
-    useCallback(
-      async (
-        currentOrderNumber: string,
-        accessToken: string
-      ) => {
-        const response =
-          await fetch(
-            `${API_URL}/api/public/events/orders/${encodeURIComponent(
-              currentOrderNumber
-            )}/status`,
-            {
-              method:
-                "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-
-              body:
-                JSON.stringify({
-                  access_token:
-                    accessToken,
-                }),
-
-              cache:
-                "no-store",
-            }
-          )
-
-
-        const payload =
-          (
-            await response.json()
-          ) as (
-            OrderStatusResponse
-            | {
-                detail?: string
-              }
-          )
-
-
-        if (!response.ok) {
-          throw new Error(
-            "detail" in payload
-              && payload.detail
-              ? payload.detail
-              : "Unable to verify this order."
-          )
-        }
-
-
-        return (
-          payload as OrderStatusResponse
+  const quotePhotoSubtotalRm =
+    quote
+      ? Math.max(
+          quote.pricing.regular_subtotal_rm
+          - quote.pricing.savings_rm,
+          0
         )
-      },
-      []
+      : 0
+
+
+  const quoteServiceFeeRm =
+    quote
+      ? Math.max(
+          quote.pricing.total_rm
+          - quotePhotoSubtotalRm,
+          0
+        )
+      : 0
+
+
+  const createdPhotoSubtotalRm =
+    createdOrder
+      ? Math.max(
+          createdOrder.pricing.regular_subtotal_rm
+          - createdOrder.pricing.discount_rm,
+          0
+        )
+      : 0
+
+
+  const createdServiceFeeRm =
+    createdOrder
+      ? Math.max(
+          createdOrder.pricing.total_rm
+          - createdPhotoSubtotalRm,
+          0
+        )
+      : 0
+
+
+  if (!open) {
+    return null
+  }
+
+
+  async function createOrder() {
+    const cleanName =
+      customerName
+        .trim()
+
+
+    const cleanEmail =
+      customerEmail
+        .trim()
+        .toLowerCase()
+
+
+    if (
+      cleanName.length < 2
+    ) {
+      setErrorMessage(
+        "Enter your name."
+      )
+
+      return
+    }
+
+
+    if (
+      !cleanEmail
+      || !cleanEmail.includes(
+        "@"
+      )
+    ) {
+      setErrorMessage(
+        "Enter a valid email address."
+      )
+
+      return
+    }
+
+
+    if (
+      selectedPhotos.length === 0
+    ) {
+      setErrorMessage(
+        "Your cart is empty."
+      )
+
+      return
+    }
+
+
+    setSubmitting(
+      true
+    )
+
+    setErrorMessage(
+      ""
     )
 
 
-  useEffect(
-    () => {
-      const params =
-        new URLSearchParams(
-          window.location.search
+    try {
+      const response =
+        await fetch(
+          `${API_URL}/api/public/events/${encodeURIComponent(
+            workspaceSlug
+          )}/${encodeURIComponent(
+            eventSlug
+          )}/orders`,
+          {
+            method:
+              "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body:
+              JSON.stringify({
+                customer_name:
+                  cleanName,
+
+                customer_email:
+                  cleanEmail,
+
+                photo_ids:
+                  selectedPhotos.map(
+                    (
+                      photo
+                    ) =>
+                      photo.id
+                  ),
+              }),
+          }
         )
 
 
-      const currentResult =
+      const payload =
         (
-          params.get(
-            "result"
-          )
-          || ""
-        )
-          .trim()
-          .toLowerCase()
-
-
-      setReturnResult(
-        currentResult
-      )
-
-
-      const currentOrderNumber =
-        (
-          params.get(
-            "order"
-          )
-          || ""
-        )
-          .trim()
-          .toUpperCase()
-
-
-      setOrderNumber(
-        currentOrderNumber
-      )
-
-
-      if (!currentOrderNumber) {
-        setVerificationState(
-          "error"
+          await response.json()
+        ) as (
+          CreateOrderResponse
+          | {
+              detail?: string
+            }
         )
 
-        setErrorMessage(
-          "The payment return did not include an order number."
-        )
 
-        return
+      if (!response.ok) {
+        throw new Error(
+          "detail" in payload
+            && payload.detail
+            ? payload.detail
+            : "Unable to create the order."
+        )
       }
 
 
-      let accessToken = ""
+      const result =
+        payload as CreateOrderResponse
 
 
       try {
-        accessToken =
-          window.sessionStorage.getItem(
-            orderAccessStorageKey(
-              currentOrderNumber
-            )
-          )
-          || ""
+        window.sessionStorage.setItem(
+          orderAccessStorageKey(
+            result.order.order_number
+          ),
+          result.access.token
+        )
 
+        window.sessionStorage.setItem(
+          orderReturnPathStorageKey(
+            result.order.order_number
+          ),
+          `${window.location.pathname}${window.location.search}`
+        )
 
-        const storedReturnPath =
-          window.sessionStorage.getItem(
-            orderReturnPathStorageKey(
-              currentOrderNumber
-            )
-          )
-
-
-        if (
-          storedReturnPath
-          && storedReturnPath.startsWith(
-            "/"
-          )
-          && !storedReturnPath.startsWith(
-            "//"
-          )
-        ) {
-          setReturnPath(
-            storedReturnPath
-          )
-        }
-
-
-        const storedPaymentPath =
-          window.sessionStorage.getItem(
-            orderPaymentPathStorageKey(
-              currentOrderNumber
-            )
-          )
-
-
-        if (
-          storedPaymentPath
-          && storedPaymentPath.startsWith(
-            "/api/public/events/"
-          )
-          && !storedPaymentPath.startsWith(
-            "//"
-          )
-        ) {
-          setPaymentPath(
-            storedPaymentPath
-          )
-        }
-
+        window.sessionStorage.setItem(
+          orderPaymentPathStorageKey(
+            result.order.order_number
+          ),
+          `/api/public/events/${encodeURIComponent(
+            workspaceSlug
+          )}/${encodeURIComponent(
+            eventSlug
+          )}/orders/${encodeURIComponent(
+            result.order.order_number
+          )}/payment`
+        )
       } catch {
-        accessToken = ""
+        // Payment can still continue if browser storage is unavailable.
+        // The return page simply will not be able to verify the order
+        // automatically in that browser session.
       }
 
 
-      if (!accessToken) {
-        setVerificationState(
-          "unavailable"
-        )
-
-        return
-      }
-
-
-      setAccessToken(
-        accessToken
+      setCreatedOrder(
+        result
       )
 
+      onOrderCreated()
 
-      let active = true
-
-
-      async function verify() {
-        setErrorMessage(
-          ""
-        )
-
-        setVerificationState(
-          "loading"
-        )
-
-
-        for (
-          let attempt = 0;
-          attempt < MAX_STATUS_ATTEMPTS;
-          attempt += 1
-        ) {
-          try {
-            const result =
-              await fetchOrderStatus(
-                currentOrderNumber,
-                accessToken
-              )
-
-
-            if (!active) {
-              return
-            }
-
-
-            setOrder(
-              result.order
-            )
-
-
-            const nextState =
-              stateFromOrderStatus(
-                result.order.status
-              )
-
-
-            setVerificationState(
-              nextState
-            )
-
-
-            if (
-              nextState !== "pending"
-            ) {
-              return
-            }
-
-
-          } catch (
-            error
-          ) {
-            if (!active) {
-              return
-            }
-
-
-            setVerificationState(
-              "error"
-            )
-
-            setErrorMessage(
-              error instanceof Error
-                ? error.message
-                : "Unable to verify this payment."
-            )
-
-            return
-          }
-
-
-          if (
-            attempt
-            < MAX_STATUS_ATTEMPTS - 1
-          ) {
-            await new Promise(
-              (
-                resolve
-              ) => {
-                window.setTimeout(
-                  resolve,
-                  STATUS_RETRY_DELAY_MS
-                )
-              }
-            )
-          }
-        }
-
-
-        if (active) {
-          setVerificationState(
-            "pending"
-          )
-        }
-      }
-
-
-      void verify()
-
-
-      return () => {
-        active = false
-      }
-    },
-    [
-      fetchOrderStatus,
-      retryNonce,
-    ]
-  )
-
-
-  async function startPaymentAgain() {
-    if (
-      !orderNumber
-      || !accessToken
-      || !paymentPath
+    } catch (
+      error
     ) {
-      setPaymentStartError(
-        "This browser session does not have the payment details needed to continue this order."
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to create the order."
       )
 
+    } finally {
+      setSubmitting(
+        false
+      )
+    }
+  }
+
+
+  async function startFpxPayment() {
+    if (!createdOrder) {
       return
     }
 
@@ -662,7 +429,7 @@ export default function ChipReturnPage() {
       true
     )
 
-    setPaymentStartError(
+    setErrorMessage(
       ""
     )
 
@@ -670,7 +437,15 @@ export default function ChipReturnPage() {
     try {
       const response =
         await fetch(
-          `${API_URL}${paymentPath}`,
+          `${API_URL}/api/public/events/${encodeURIComponent(
+            workspaceSlug
+          )}/${encodeURIComponent(
+            eventSlug
+          )}/orders/${encodeURIComponent(
+            createdOrder
+              .order
+              .order_number
+          )}/payment`,
           {
             method:
               "POST",
@@ -683,11 +458,11 @@ export default function ChipReturnPage() {
             body:
               JSON.stringify({
                 access_token:
-                  accessToken,
+                  createdOrder
+                    .access
+                    .token,
+                return_origin: window.location.origin,
               }),
-
-            cache:
-              "no-store",
           }
         )
 
@@ -708,7 +483,7 @@ export default function ChipReturnPage() {
           "detail" in payload
             && payload.detail
             ? payload.detail
-            : "Unable to continue FPX payment."
+            : "Unable to start FPX payment."
         )
       }
 
@@ -737,358 +512,73 @@ export default function ChipReturnPage() {
     } catch (
       error
     ) {
-      setPaymentStartError(
+      setErrorMessage(
         error instanceof Error
           ? error.message
-          : "Unable to continue FPX payment."
+          : "Unable to start FPX payment."
       )
 
       setPaymentStarting(
         false
       )
-
-      setRetryNonce(
-        (
-          current
-        ) =>
-          current + 1
-      )
     }
   }
 
 
-  const paid =
-    verificationState === "paid"
+  if (createdOrder) {
+    return (
+      <div className="fixed inset-0 z-[140] flex items-center justify-center bg-[#071D24]/65 p-4 backdrop-blur-sm">
 
-  const selectedPhoto = downloads?.items.find(
-    (item) => item.photo_id === selectedPhotoId
-  )
+        <div className="w-full max-w-[540px] overflow-hidden rounded-[28px] border border-[#DCE8EA] bg-white shadow-[0_24px_80px_rgba(6,36,46,0.25)]">
 
-  const pending =
-    verificationState === "pending"
+          <div className="px-6 py-8 text-center sm:px-8">
 
-  const loading =
-    verificationState === "loading"
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#E7F8F3]">
 
-  const unavailable =
-    verificationState === "unavailable"
-
-  const failed =
-    verificationState === "failed"
-
-  const cancelled =
-    verificationState === "cancelled"
-
-  const expired =
-    verificationState === "expired"
-
-  const refunded =
-    verificationState === "refunded"
-
-  const error =
-    verificationState === "error"
-
-
-  const returnedWithoutPayment =
-    pending
-    && returnResult === "cancelled"
-
-
-  const negative =
-    failed
-    || cancelled
-    || expired
-
-
-  useEffect(
-    () => {
-      if (
-        !paid
-        || !orderNumber
-        || !accessToken
-      ) {
-        return
-      }
-
-
-      let active = true
-
-
-      async function loadDownloads() {
-        setDownloadsLoading(
-          true
-        )
-
-        setDownloadsError(
-          ""
-        )
-
-
-        try {
-          const response =
-            await fetch(
-              `${API_URL}/api/public/events/orders/${encodeURIComponent(
-                orderNumber
-              )}/downloads`,
-              {
-                method:
-                  "POST",
-
-                headers: {
-                  "Content-Type":
-                    "application/json",
-                },
-
-                body:
-                  JSON.stringify({
-                    access_token:
-                      accessToken,
-                  }),
-
-                cache:
-                  "no-store",
-              }
-            )
-
-
-          const payload =
-            (
-              await response.json()
-            ) as (
-              OrderDownloadsResponse
-              | {
-                  detail?: string
-                }
-            )
-
-
-          if (!response.ok) {
-            throw new Error(
-              "detail" in payload
-                && payload.detail
-                ? payload.detail
-                : "Unable to prepare your photo downloads."
-            )
-          }
-
-
-          if (!active) {
-            return
-          }
-
-
-          setDownloads(
-            (
-              payload as OrderDownloadsResponse
-            ).downloads
-          )
-
-        } catch (
-          error
-        ) {
-          if (!active) {
-            return
-          }
-
-
-          setDownloads(
-            null
-          )
-
-          setDownloadsError(
-            error instanceof Error
-              ? error.message
-              : "Unable to prepare your photo downloads."
-          )
-
-        } finally {
-          if (active) {
-            setDownloadsLoading(
-              false
-            )
-          }
-        }
-      }
-
-
-      void loadDownloads()
-
-
-      return () => {
-        active = false
-      }
-    },
-    [
-      paid,
-      orderNumber,
-      accessToken,
-      downloadRefreshNonce,
-    ]
-  )
-
-
-  let title =
-    "Confirming payment"
-
-  let description =
-    "We are securely checking the payment status for your order."
-
-
-  if (paid) {
-    title =
-      "Payment successful"
-
-    description =
-      "Your payment has been securely confirmed. Your original photos are ready to download."
-
-  } else if (pending) {
-    if (returnedWithoutPayment) {
-      title =
-        "Payment not completed"
-
-      description =
-        "You returned before completing FPX. Your order is still reserved for a limited time, so you can continue the same payment."
-    } else {
-      title =
-        "Payment is being confirmed"
-
-      description =
-        "The payment provider has returned you to EZFOTOO, but confirmation is still processing. You can check again in a moment."
-    }
-
-  } else if (failed) {
-    title =
-      "Payment was not completed"
-
-    description =
-      "The payment provider reported that this transaction was unsuccessful."
-
-  } else if (cancelled) {
-    title =
-      "Payment cancelled"
-
-    description =
-      "No completed payment was confirmed for this order."
-
-  } else if (expired) {
-    title =
-      "Order expired"
-
-    description =
-      "The payment reservation for this order has expired."
-
-  } else if (refunded) {
-    title =
-      "Payment refunded"
-
-    description =
-      "This order has been marked as refunded."
-
-  } else if (unavailable) {
-    title =
-      "Order verification unavailable"
-
-    description =
-      "This browser session does not have the secure order access needed to verify the payment. Return to the gallery where you started the checkout."
-
-  } else if (error) {
-    title =
-      "Unable to verify payment"
-
-    description =
-      errorMessage
-      || "We could not verify the payment status right now."
-  }
-
-
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-[#F7FAFB] px-5 py-10">
-
-      <div className="w-full max-w-[540px] rounded-[28px] border border-[#DCE8EA] bg-white p-8 text-center shadow-[0_18px_55px_rgba(8,47,60,0.08)] sm:p-9">
-
-        {paid ? (
-
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#E7F8F3]">
-
-            <CheckCircle2 className="h-8 w-8 text-[#16856F]" />
-
-          </div>
-
-        ) : loading || pending ? (
-
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#EEF7F8]">
-
-            {loading ? (
-              <Loader2 className="h-8 w-8 animate-spin text-[#168792]" />
-            ) : (
-              <Clock3 className="h-8 w-8 text-[#168792]" />
-            )}
-
-          </div>
-
-        ) : negative ? (
-
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#FFF1F2]">
-
-            <XCircle className="h-8 w-8 text-[#AD5660]" />
-
-          </div>
-
-        ) : refunded ? (
-
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#EEF7F8]">
-
-            <RefreshCw className="h-7 w-7 text-[#168792]" />
-
-          </div>
-
-        ) : (
-
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#EEF7F8]">
-
-            <ShieldCheck className="h-8 w-8 text-[#168792]" />
-
-          </div>
-
-        )}
-
-
-        <p className="mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-[#0A929E]">
-          EZFOTOO Payment
-        </p>
-
-
-        <h1 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#173D47]">
-          {title}
-        </h1>
-
-
-        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#74878E]">
-          {description}
-        </p>
-
-
-        {orderNumber && (
-
-          <div className="mt-6 rounded-[18px] border border-[#DDE8EA] bg-[#F8FBFB] p-5 text-left">
-
-            <div>
-
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#8A9A9F]">
-                Order number
-              </p>
-
-
-              <p className="mt-1 break-all font-mono text-sm font-semibold text-[#294E57]">
-                {orderNumber}
-              </p>
+              <CheckCircle2 className="h-8 w-8 text-[#16856F]" />
 
             </div>
 
 
-            {order && (
+            <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.15em] text-[#0A929E]">
+              Order created
+            </p>
 
-              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-[#DFE9EB] pt-5">
+
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#173D47]">
+              Complete your payment
+            </h2>
+
+
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#74878E]">
+              Your selected photos are reserved. Continue with FPX to complete your purchase.
+            </p>
+
+
+            <div className="mt-6 rounded-[20px] border border-[#DDE8EA] bg-[#F8FBFB] p-5 text-left">
+
+              <div className="flex items-start gap-3">
+
+                <ReceiptText className="mt-0.5 h-5 w-5 text-[#0A929E]" />
+
+
+                <div>
+
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#8A9A9F]">
+                    Order number
+                  </p>
+
+
+                  <p className="mt-1 font-mono text-sm font-semibold text-[#244B55]">
+                    {createdOrder.order.order_number}
+                  </p>
+
+                </div>
+
+              </div>
+
+
+              <div className="mt-5 grid grid-cols-2 gap-4">
 
                 <div>
 
@@ -1098,7 +588,7 @@ export default function ChipReturnPage() {
 
 
                   <p className="mt-1 text-sm font-semibold text-[#355B65]">
-                    {order.item_count}
+                    {createdOrder.order.item_count}
                   </p>
 
                 </div>
@@ -1111,369 +601,439 @@ export default function ChipReturnPage() {
                   </p>
 
 
-                  <p
-                    className={
-                      paid
-                        ? "mt-1 text-sm font-semibold text-[#16856F]"
-                        : negative
-                          ? "mt-1 text-sm font-semibold text-[#AD5660]"
-                          : "mt-1 text-sm font-semibold text-[#B17A21]"
-                    }
-                  >
-                    {order.status.replaceAll(
-                      "_",
-                      " "
-                    )}
+                  <p className="mt-1 text-sm font-semibold text-[#B17A21]">
+                    Pending payment
                   </p>
 
                 </div>
 
-
-                <div className="col-span-2 border-t border-[#DFE9EB] pt-4">
-
-                  <div className="flex items-end justify-between gap-4">
-
-                    <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#8A9A9F]">
-                      Total
-                    </p>
+              </div>
 
 
-                    <p className="text-2xl font-semibold tracking-[-0.035em] text-[#123D48]">
+              <div className="mt-5 border-t border-[#DDE8EA] pt-5">
 
+                <div className="space-y-2.5 text-sm">
+
+                  {createdOrder.pricing.discount_rm > 0 ? (
+                    <>
+                      <div className="flex justify-between text-[#74878E]">
+                        <span>Regular price</span>
+                        <span>
+                          RM
+                          {createdOrder.pricing.regular_subtotal_rm.toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between font-semibold text-[#16856F]">
+                        <span>Bundle savings</span>
+                        <span>
+                          − RM
+                          {createdOrder.pricing.discount_rm.toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between text-[#61777E]">
+                        <span>Photo subtotal</span>
+                        <span>
+                          RM
+                          {createdPhotoSubtotalRm.toFixed(2)}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between text-[#61777E]">
+                      <span>Photos</span>
+                      <span>
+                        RM
+                        {createdPhotoSubtotalRm.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between text-[#74878E]">
+                    <span>Service fee</span>
+                    <span>
                       RM
-                      {order
-                        .total_rm
-                        .toFixed(
-                          2
-                        )}
+                      {createdServiceFeeRm.toFixed(2)}
+                    </span>
+                  </div>
 
-                    </p>
+                  <div className="border-t border-[#DDE8EA] pt-3">
+                    <div className="flex items-end justify-between gap-4">
+                      <p className="font-semibold text-[#49656D]">
+                        Total
+                      </p>
 
+                      <p className="text-2xl font-semibold tracking-[-0.035em] text-[#123D48]">
+                        RM
+                        {createdOrder.pricing.total_rm.toFixed(2)}
+                      </p>
+                    </div>
                   </div>
 
                 </div>
 
               </div>
 
-            )}
-
-          </div>
-
-        )}
+            </div>
 
 
-        {paid && (
+            <div className="mt-4 flex items-start gap-3 rounded-[16px] border border-[#D7E8E9] bg-[#F5FAFA] px-4 py-3 text-left">
 
-          <div className="mt-4 flex items-start gap-3 rounded-[16px] border border-[#D7E8E9] bg-[#F5FAFA] px-4 py-3 text-left">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#16856F]" />
 
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#16856F]" />
-
-
-            <p className="text-xs leading-5 text-[#56757D]">
-              Payment verified securely by EZFOTOO.
-            </p>
-
-          </div>
-
-        )}
-
-
-        {paid && (
-
-          <div className="mt-5 rounded-[18px] border border-[#DDE8EA] bg-white p-5 text-left">
-
-            <div className="flex items-start justify-between gap-4">
 
               <div>
 
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#0A929E]">
-                  Your photos
+                <p className="text-xs font-semibold text-[#45676F]">
+                  Secure FPX Online Banking
                 </p>
 
 
-                <h2 className="mt-1 text-base font-semibold text-[#244B55]">
-                  Original files
-                </h2>
-
-
-                <p className="mt-1 text-xs leading-5 text-[#7B8F95]">
-                  Download links are private and short-lived. Refresh them anytime while this order remains eligible for delivery.
+                <p className="mt-0.5 text-[11px] leading-5 text-[#7C9096]">
+                  You&apos;ll continue to the secure payment page to choose your bank and authorize the transaction.
                 </p>
 
-              </div>
-
-
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#EEF8F8]">
-                <FileImage className="h-5 w-5 text-[#168792]" />
               </div>
 
             </div>
 
 
-            {downloadsLoading ? (
+            {createdOrder.order.expires_at && (
 
-              <div className="mt-5 flex items-center justify-center gap-2 rounded-[14px] bg-[#F7FAFB] px-4 py-5 text-sm text-[#667A83]">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Preparing secure downloads...
-              </div>
+              <div className="mt-4 flex items-center justify-center gap-2 text-xs text-[#7D9096]">
 
-            ) : downloadsError ? (
+                <Clock3 className="h-4 w-4" />
 
-              <div className="mt-5">
-
-                <div className="rounded-[14px] border border-[#F0DCDD] bg-[#FFF7F7] px-4 py-3 text-xs leading-5 text-[#94545C]">
-                  {downloadsError}
-                </div>
-
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDownloadRefreshNonce(
-                      (
-                        current
-                      ) =>
-                        current + 1
-                    )
-                  }}
-                  className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#D4E2E5] bg-white text-xs font-semibold text-[#45666F] transition hover:bg-[#F6FAFA]"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Try downloads again
-                </button>
+                Payment reservation expires in approximately 30 minutes.
 
               </div>
 
-            ) : downloads ? (
-
-              <div className="mt-5">
-
-                <p className="mb-3 text-[10px] font-medium text-[#87989D]">
-                  These links expire in about {Math.max(
-                    1,
-                    Math.ceil(
-                      downloads.expires_in_seconds / 60
-                    )
-                  )} minutes.
-                </p>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-
-                  {downloads.items.map(
-                    (
-                      item,
-                      index
-                    ) => (
-
-                      <article
-                        key={item.photo_id}
-                        className="overflow-hidden rounded-[14px] border border-[#E1EAEC] bg-white"
-                      >
-                        <div className="flex aspect-[4/3] items-center justify-center bg-[#F3F8F8]">
-                          {item.view_url ? (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedPhotoId(item.photo_id)}
-                              aria-label={`View ${item.filename || `photo ${index + 1}`} full size`}
-                              className="flex h-full w-full items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0D5C68]"
-                            >
-                              <img
-                                src={item.view_url}
-                                alt={`Purchased photo ${index + 1}: ${item.filename}`}
-                                loading="lazy"
-                                decoding="async"
-                                referrerPolicy="no-referrer"
-                                className="h-full w-full cursor-zoom-in object-contain"
-                              />
-                            </button>
-                          ) : (
-                            <FileImage aria-hidden="true" className="h-10 w-10 text-[#9ABBC0]" />
-                          )}
-                        </div>
-
-                        <div className="p-3">
-                          <p className="truncate text-xs font-semibold text-[#355B65]" title={item.filename}>
-                            {item.filename || `Photo ${index + 1}`}
-                          </p>
-                          <p className="mt-0.5 text-[10px] text-[#87989D]">
-                            {formatBytes(item.size_bytes)}
-                          </p>
-                          <a
-                            href={item.download_url}
-                            aria-label={`Download ${item.filename || `photo ${index + 1}`}`}
-                            className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[#073B4C] px-3 text-[11px] font-semibold text-white transition hover:bg-[#0B5363]"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                            Download
-                          </a>
-                        </div>
-                      </article>
-
-                    )
-                  )}
-
-                </div>
+            )}
 
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedPhotoId(null)
-                    setDownloadRefreshNonce(
-                      (
-                        current
-                      ) =>
-                        current + 1
-                    )
-                  }}
-                  className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#D4E2E5] bg-white text-xs font-semibold text-[#45666F] transition hover:bg-[#F6FAFA]"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Refresh download links
-                </button>
+            {errorMessage && (
 
+              <div className="mt-4 rounded-xl border border-[#F0CDD1] bg-[#FFF7F7] px-4 py-3 text-sm font-medium text-[#A44C56]">
+                {errorMessage}
               </div>
 
-            ) : null}
+            )}
+
+
+            <button
+              type="button"
+              disabled={
+                paymentStarting
+              }
+              onClick={
+                startFpxPayment
+              }
+              className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:cursor-not-allowed disabled:opacity-55"
+            >
+
+              {paymentStarting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+
+                  Opening FPX...
+                </>
+              ) : (
+                <>
+                  <Landmark className="h-4 w-4" />
+
+                  Pay RM
+                  {createdOrder
+                    .pricing
+                    .total_rm
+                    .toFixed(
+                      2
+                    )}
+                  {" "}
+                  with FPX
+
+                  <ArrowUpRight className="h-4 w-4" />
+                </>
+              )}
+
+            </button>
+
+
+            <button
+              type="button"
+              disabled={
+                paymentStarting
+              }
+              onClick={
+                onClose
+              }
+              className="mt-3 h-11 w-full rounded-xl text-sm font-semibold text-[#71868C] transition hover:bg-[#F6F9FA] disabled:opacity-50"
+            >
+              Close
+            </button>
 
           </div>
 
-        )}
+        </div>
+
+      </div>
+    )
+  }
 
 
-        {paymentStartError && (
+  return (
+    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-[#071D24]/65 p-4 backdrop-blur-sm">
 
-          <div className="mt-5 rounded-[14px] border border-[#F0DCDD] bg-[#FFF7F7] px-4 py-3 text-left text-xs leading-5 text-[#94545C]">
-            {paymentStartError}
+      <div className="w-full max-w-[560px] overflow-hidden rounded-[28px] border border-[#DCE8EA] bg-white shadow-[0_24px_80px_rgba(6,36,46,0.25)]">
+
+        <div className="flex items-start justify-between gap-4 border-b border-[#E0E9EB] px-6 py-5">
+
+          <div>
+
+            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#0A929E]">
+              Checkout
+            </p>
+
+
+            <h2 className="mt-1 text-xl font-semibold tracking-[-0.025em] text-[#173D47]">
+              Your details
+            </h2>
+
           </div>
 
-        )}
-
-
-        {returnedWithoutPayment && paymentPath && accessToken && (
 
           <button
             type="button"
             disabled={
-              paymentStarting
+              submitting
             }
             onClick={
-              startPaymentAgain
+              onClose
             }
-            className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:cursor-not-allowed disabled:opacity-55"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#D9E4E7] text-[#6E858C] transition hover:bg-[#F3F7F8]"
           >
 
-            {paymentStarting ? (
+            <X className="h-4 w-4" />
+
+          </button>
+
+        </div>
+
+
+        <div className="max-h-[78vh] overflow-y-auto p-6">
+
+          <label className="block">
+
+            <span className="text-xs font-semibold text-[#46636B]">
+              Name
+            </span>
+
+
+            <div className="relative mt-2">
+
+              <UserRound className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A9FA5]" />
+
+
+              <input
+                value={
+                  customerName
+                }
+                onChange={(
+                  event
+                ) => {
+                  setCustomerName(
+                    event.target.value
+                  )
+
+                  setErrorMessage(
+                    ""
+                  )
+                }}
+                placeholder="Your name"
+                autoComplete="name"
+                className="h-12 w-full rounded-xl border border-[#D6E3E6] bg-white pl-11 pr-4 text-sm text-[#294D56] outline-none transition focus:border-[#62C5CC] focus:ring-4 focus:ring-[#E3F7F8]"
+              />
+
+            </div>
+
+          </label>
+
+
+          <label className="mt-4 block">
+
+            <span className="text-xs font-semibold text-[#46636B]">
+              Email
+            </span>
+
+
+            <div className="relative mt-2">
+
+              <Mail className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A9FA5]" />
+
+
+              <input
+                type="email"
+                value={
+                  customerEmail
+                }
+                onChange={(
+                  event
+                ) => {
+                  setCustomerEmail(
+                    event.target.value
+                  )
+
+                  setErrorMessage(
+                    ""
+                  )
+                }}
+                placeholder="you@example.com"
+                autoComplete="email"
+                className="h-12 w-full rounded-xl border border-[#D6E3E6] bg-white pl-11 pr-4 text-sm text-[#294D56] outline-none transition focus:border-[#62C5CC] focus:ring-4 focus:ring-[#E3F7F8]"
+              />
+
+            </div>
+
+          </label>
+
+
+          <p className="mt-2 text-[11px] leading-5 text-[#8B9BA0]">
+            We&apos;ll use this email for your payment confirmation and photo delivery.
+          </p>
+
+
+          {quote && (
+
+            <div className="mt-6 rounded-[20px] border border-[#DDE8EA] bg-[#F8FBFB] p-5">
+
+              <div className="flex items-center justify-between">
+
+                <p className="text-sm font-semibold text-[#315862]">
+                  Order summary
+                </p>
+
+
+                <p className="text-xs text-[#819399]">
+                  {quote.selected_count}
+                  {" "}
+                  photos
+                </p>
+
+              </div>
+
+
+              <div className="mt-4 space-y-2.5 text-sm">
+
+                {quote.pricing.savings_rm > 0 ? (
+                  <>
+                    <div className="flex justify-between text-[#74878E]">
+                      <span>Regular price</span>
+                      <span>
+                        RM
+                        {quote.pricing.regular_subtotal_rm.toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between font-semibold text-[#16856F]">
+                      <span>Bundle savings</span>
+                      <span>
+                        − RM
+                        {quote.pricing.savings_rm.toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between text-[#61777E]">
+                      <span>Photo subtotal</span>
+                      <span>
+                        RM
+                        {quotePhotoSubtotalRm.toFixed(2)}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between text-[#61777E]">
+                    <span>Photos</span>
+                    <span>
+                      RM
+                      {quotePhotoSubtotalRm.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex justify-between text-[#74878E]">
+                  <span>Service fee</span>
+                  <span>
+                    RM
+                    {quoteServiceFeeRm.toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="border-t border-[#DCE7E9] pt-3">
+                  <div className="flex items-end justify-between">
+                    <span className="font-semibold text-[#49656D]">
+                      Total
+                    </span>
+
+                    <span className="text-2xl font-semibold tracking-[-0.035em] text-[#123D48]">
+                      RM
+                      {quote.pricing.total_rm.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+          )}
+
+
+          {errorMessage && (
+
+            <div className="mt-4 rounded-xl border border-[#F0CDD1] bg-[#FFF7F7] px-4 py-3 text-sm font-medium text-[#A44C56]">
+              {errorMessage}
+            </div>
+
+          )}
+
+
+          <button
+            type="button"
+            disabled={
+              submitting
+              || !quote
+            }
+            onClick={
+              createOrder
+            }
+            className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363] disabled:cursor-not-allowed disabled:opacity-55"
+          >
+
+            {submitting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Opening FPX...
+
+                Creating order...
               </>
             ) : (
               <>
-                <Landmark className="h-4 w-4" />
-                Try payment again
+                <ReceiptText className="h-4 w-4" />
+
+                Continue to payment
               </>
             )}
 
           </button>
 
-        )}
 
+          <p className="mt-3 text-center text-[10px] leading-4 text-[#98A6AA]">
+            Your payable amount is calculated and verified securely by EZFOTOO.
+          </p>
 
-        {(pending || error) && (
-
-          <button
-            type="button"
-            onClick={() => {
-              setRetryNonce(
-                (
-                  current
-                ) =>
-                  current + 1
-              )
-            }}
-            className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#D4E2E5] bg-white text-sm font-semibold text-[#45666F] transition hover:bg-[#F6FAFA]"
-          >
-            <RefreshCw className="h-4 w-4" />
-
-            Check payment again
-          </button>
-
-        )}
-
-
-        <Link
-          href={
-            returnPath
-          }
-          className={
-            returnedWithoutPayment
-              ? "mt-4 flex h-12 w-full items-center justify-center rounded-xl border border-[#D4E2E5] bg-white text-sm font-semibold text-[#45666F] transition hover:bg-[#F6FAFA]"
-              : "mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-[#073B4C] text-sm font-semibold text-white transition hover:bg-[#0B5363]"
-          }
-        >
-          {paid || returnedWithoutPayment
-            ? "Return to event gallery"
-            : "Return to EZFOTOO"}
-        </Link>
-
-
-        <p className="mt-4 text-[10px] leading-4 text-[#98A6AA]">
-          The browser return result is not used as payment proof. EZFOTOO displays the status stored by the verified server-side payment flow.
-        </p>
+        </div>
 
       </div>
 
-      {selectedPhoto?.view_url && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="photo-viewer-title"
-          className="fixed inset-0 z-50 flex flex-col bg-[#061B22]/95 p-4 text-white sm:p-6"
-        >
-          <button
-            type="button"
-            aria-label="Close photo viewer"
-            onClick={() => setSelectedPhotoId(null)}
-            className="absolute inset-0 cursor-default"
-          />
-
-          <div className="relative mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
-            <p id="photo-viewer-title" className="min-w-0 truncate text-sm font-medium">
-              {selectedPhoto.filename || "Purchased photo"}
-            </p>
-
-            <button
-              ref={closeViewerButtonRef}
-              type="button"
-              onClick={() => setSelectedPhotoId(null)}
-              aria-label="Close photo viewer"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          <div className="pointer-events-none relative flex min-h-0 flex-1 items-center justify-center py-5">
-            <img
-              src={selectedPhoto.view_url}
-              alt={selectedPhoto.filename || "Purchased photo"}
-              referrerPolicy="no-referrer"
-              className="max-h-full max-w-full object-contain"
-            />
-          </div>
-
-          <div className="relative mx-auto flex w-full max-w-7xl justify-center">
-            <a
-              href={selectedPhoto.download_url}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-semibold text-[#073B4C] hover:bg-[#E7F8F3]"
-            >
-              <Download className="h-4 w-4" />
-              Download photo
-            </a>
-          </div>
-        </div>
-      )}
-    </main>
+    </div>
   )
 }

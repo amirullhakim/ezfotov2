@@ -188,6 +188,15 @@ export async function proxy(
 
 
   if (tenantSlug) {
+    // Customer payment and order pages must stay on the checkout origin.
+    if (
+      pathname === "/payment/chip/return" ||
+      pathname.startsWith("/payment/chip/return/") ||
+      pathname.startsWith("/order/")
+    ) {
+      return NextResponse.next()
+    }
+
 
     // Prevent rewriting an already-internal
     // tenant route.
